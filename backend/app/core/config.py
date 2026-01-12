@@ -1,37 +1,57 @@
-import secrets
-from typing import Any
+import os
+from typing import Any, Optional
 
 from fastapi_mail.config import ConnectionConfig
-from pydantic import EmailStr, field_validator, ValidationInfo, PostgresDsn, SecretStr
+from pydantic import (
+    AnyHttpUrl,
+    EmailStr,
+    field_validator,
+    ValidationInfo,
+    PostgresDsn,
+    SecretStr,
+)
 from pydantic_settings import BaseSettings
-
-from app.core.utils import generate_secret_key
 
 
 class Settings(BaseSettings):
     ENV: str = "dev"
     API_V1_STR: str = "/api/v1"
 
-    SECRET_KEY: str = generate_secret_key()
+    SECRET_KEY: str = ""
     # Secret key used for signing pg_tileserv and titiler requests
-    TILE_SIGNING_SECRET_KEY: str = generate_secret_key()
+    TILE_SIGNING_SECRET_KEY: str = ""
 
-    @field_validator("SECRET_KEY", mode="before")
-    def generate_secret_key(cls, v: str | None) -> str:
-        if not v:
-            return secrets.token_urlsafe(32)
+    @field_validator("SECRET_KEY", "TILE_SIGNING_SECRET_KEY", mode="before")
+    def validate_secret_keys(cls, v: str | None, info: ValidationInfo) -> str:
+        field_name = info.field_name
+        if not v or v.strip() == "":
+            raise ValueError(
+                f"{field_name} environment variable must be set and cannot be empty"
+            )
+        if len(v) < 32:
+            raise ValueError(f"{field_name} must be at least 32 characters long")
         return v
 
-    # 60 minutes * 24 hours * 8 days = 8 days
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8
+    # 15 minutes
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    # Activity tracking throttle in minutes (only update last_activity_at if older than this)
+    ACTIVITY_TRACKING_THROTTLE_MINUTES: int = 15
 
     API_PROJECT_NAME: str = ""
     API_DOMAIN: str = ""
     TEST_STATIC_DIR: str = "/tmp/static"
     STATIC_DIR: str = "/static"
     POTREE_DIR: str = "/app/potree"
+    PC_GLTF_VIEWER_DIR: str = "/app/pc-gltf-viewer"
 
     API_LOGDIR: str = "/app/logs"
+
+    # OpenTelemetry
+    ENABLE_OPENTELEMETRY: bool = False
+
+    # Cloudflare Turnstile
+    TURNSTILE_SECRET_KEY: str | None = None
 
     # Provide a base URL for shortened URLs (e.g., "http://localhost:8000/s")
     SHORTENED_URL_BASE: str = API_DOMAIN + "/sl"
@@ -109,6 +129,39 @@ class Settings(BaseSettings):
 
     # Testing
     EMAIL_TEST_USER: EmailStr = "test@example.com"  # type: ignore
+
+    # Feature flags for optional modules
+    ENABLE_BREEDBASE: bool = False
+    ENABLE_CAMPAIGNS: bool = False
+    ENABLE_IFORESTER: bool = False
+    ENABLE_STAC: bool = False
+
+    # STAC Catalog
+    STAC_API_URL: Optional[AnyHttpUrl] = None
+    STAC_API_TEST_URL: Optional[AnyHttpUrl] = None
+    STAC_BROWSER_URL: Optional[AnyHttpUrl] = None
+    EXTERNAL_VIEWER_URL: Optional[AnyHttpUrl] = None
+
+    @field_validator(
+        "EXTERNAL_VIEWER_URL",
+        "STAC_API_URL",
+        "STAC_API_TEST_URL",
+        "STAC_BROWSER_URL",
+        mode="before",
+    )
+    @classmethod
+    def empty_str_to_none(cls, v):
+        if v == "":
+            return None
+        return v
+
+    @property
+    def get_stac_api_url(self) -> Optional[AnyHttpUrl]:
+        """Get the appropriate STAC API URL based on whether we're running tests."""
+        # Check if we're running tests
+        if os.getenv("RUNNING_TESTS") == "1" and self.STAC_API_TEST_URL:
+            return self.STAC_API_TEST_URL
+        return self.STAC_API_URL
 
 
 settings = Settings()

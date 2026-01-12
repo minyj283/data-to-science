@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import LoadingBars from '../../LoadingBars';
 import Filter from '../../Filter';
@@ -12,49 +12,23 @@ import Sort, {
   getSortPreferenceFromLocalStorage,
   sortProjects,
 } from '../../Sort';
-
-interface FieldProperties {
-  id: string;
-  center_x: number;
-  center_y: number;
-}
-
-type FieldGeoJSONFeature = Omit<GeoJSON.Feature, 'properties'> & {
-  properties: FieldProperties;
-};
-
-export interface Project {
-  id: string;
-  centroid: {
-    x: number;
-    y: number;
-  };
-  data_product_count: number;
-  description: string;
-  field: FieldGeoJSONFeature;
-  flight_count: number;
-  liked: boolean;
-  location_id: string;
-  most_recent_flight: string;
-  role: string;
-  team_id: string;
-  title: string;
-}
+import { ProjectItem } from './Project';
 
 export default function ProjectList({
   projects,
   revalidate,
 }: {
-  projects: Project[] | null;
+  projects: ProjectItem[] | null;
   revalidate: () => void;
 }) {
   const [currentPage, setCurrentPage] = useState(0);
   const [sortSelection, setSortSelection] = useState<SortSelection>(
     getSortPreferenceFromLocalStorage('sortPreference')
   );
-  const [openComponent, setOpenComponent] = useState<'filter' | 'sort' | null>(
-    null
-  );
+  const [openComponent, setOpenComponent] = useState<
+    'filter' | 'sort' | 'teamFilter' | null
+  >(null);
+  const [selectedTeamIds, setSelectedTeamIds] = useState<string[]>([]);
 
   const [searchText, setSearchText] = useState('');
 
@@ -68,16 +42,48 @@ export default function ProjectList({
 
   const MAX_ITEMS = 12;
 
+  /**
+   * Filters projects by search text.
+   * @param projs Projects to filter.
+   * @returns
+   */
+  const filterSearch = useCallback(
+    (projs: ProjectItem[]) => {
+      return projs.filter(
+        (project) =>
+          !project.title ||
+          project.title.toLowerCase().includes(searchText.toLowerCase()) ||
+          project.description.toLowerCase().includes(searchText.toLowerCase())
+      );
+    },
+    [searchText]
+  );
+
+  /**
+   * Filters projects by search text and limits to current page.
+   * @param projs Projects to filter.
+   * @returns Array of filtered and sliced projects.
+   */
+  const filterAndSlice = useCallback(
+    (projs: ProjectItem[]): ProjectItem[] => {
+      return filterSearch(projs).slice(
+        currentPage * MAX_ITEMS,
+        MAX_ITEMS + currentPage * MAX_ITEMS
+      );
+    },
+    [currentPage, filterSearch]
+  );
+
   useEffect(() => {
     locationDispatch({ type: 'clear', payload: null });
     projectDispatch({ type: 'clear', payload: null });
-  }, [project]);
+  }, [locationDispatch, project, projectDispatch]);
 
   useEffect(() => {
     if (projects && filterAndSlice(projects).length < MAX_ITEMS) {
       setCurrentPage(0);
     }
-  }, [searchText]);
+  }, [filterAndSlice, projects]);
 
   /**
    * Updates the current search text.
@@ -107,32 +113,6 @@ export default function ProjectList({
     }
   }
 
-  /**
-   * Filters projects by search text.
-   * @param projs Projects to filter.
-   * @returns
-   */
-  function filterSearch(projs: Project[]) {
-    return projs.filter(
-      (project) =>
-        !project.title ||
-        project.title.toLowerCase().includes(searchText.toLowerCase()) ||
-        project.description.toLowerCase().includes(searchText.toLowerCase())
-    );
-  }
-
-  /**
-   * Filters projects by search text and limits to current page.
-   * @param projs Projects to filter.
-   * @returns Array of filtered and sliced projects.
-   */
-  function filterAndSlice(projs: Project[]): Project[] {
-    return filterSearch(projs).slice(
-      currentPage * MAX_ITEMS,
-      MAX_ITEMS + currentPage * MAX_ITEMS
-    );
-  }
-
   const filteredProjects = useMemo(() => {
     if (!projects) {
       return [];
@@ -152,15 +132,24 @@ export default function ProjectList({
       );
     }
 
+    if (
+      projectFilterSelection.includes('myTeams') &&
+      selectedTeamIds.length > 0
+    ) {
+      filteredProjects = filteredProjects.filter(
+        (project) => project.team && selectedTeamIds.includes(project.team.id)
+      );
+    }
+
     return filteredProjects;
-  }, [projects, projectFilterSelection]);
+  }, [projects, projectFilterSelection, selectedTeamIds]);
 
   const filteredAndSortedProjects = useMemo(
     () =>
       filteredProjects
         ? filterAndSlice(sortProjects(filteredProjects, sortSelection))
         : [],
-    [currentPage, filteredProjects, searchText, sortSelection]
+    [filterAndSlice, filteredProjects, sortSelection]
   );
 
   const TOTAL_PAGES = Math.ceil(
@@ -215,12 +204,33 @@ export default function ProjectList({
                   categories={[
                     { label: 'My projects', value: 'myProjects' },
                     { label: 'Favorite projects', value: 'likedProjects' },
+                    { label: 'My teams', value: 'myTeams' },
                   ]}
                   selectedCategory={projectFilterSelection}
                   setSelectedCategory={updateProjectFilter}
                   isOpen={openComponent === 'filter'}
                   onOpen={() => setOpenComponent('filter')}
                   onClose={() => setOpenComponent(null)}
+                  sublistParentValue="myTeams"
+                  sublistCategories={
+                    projects
+                      ? Array.from(
+                          new Map(
+                            projects
+                              .filter((p) => p.team)
+                              .map((p) => [p.team!.id, p.team!.title])
+                          ).entries()
+                        )
+                          .map(([id, title]) => ({ label: title, value: id }))
+                          .sort((a, b) =>
+                            a.label.localeCompare(b.label, undefined, {
+                              sensitivity: 'base',
+                            })
+                          )
+                      : []
+                  }
+                  sublistSelected={selectedTeamIds}
+                  setSublistSelected={setSelectedTeamIds}
                 />
                 <Sort
                   sortSelection={sortSelection}

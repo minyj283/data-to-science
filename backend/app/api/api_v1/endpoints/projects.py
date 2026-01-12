@@ -1,16 +1,16 @@
 import logging
 import os
-from datetime import date
-from typing import Any, List, Optional, Union
+from typing import Any, List, Union
 from uuid import UUID
 
 from geojson_pydantic import Feature, FeatureCollection
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app import crud, models, schemas
 from app.api import deps
 from app.api.utils import create_project_field_preview
+from app.core.config import settings
 
 
 logger = logging.getLogger("__name__")
@@ -57,8 +57,9 @@ def create_project(
         )
         if project_in_db["result"]:
             try:
-                features = [Feature(**project_in_db["result"].field)]
-                create_project_field_preview(project["result"].id, features)
+                if project_in_db["result"].field:
+                    features: List[Feature] = [Feature(**project_in_db["result"].field)]
+                    create_project_field_preview(project["result"].id, features)
             except Exception:
                 logger.exception("Unable to create preview map")
     return project["result"]
@@ -68,9 +69,11 @@ def create_project(
 def read_project(
     project_id: UUID,
     format: str = Query("json", pattern="^(json|geojson)$"),
-    current_user: models.User = Depends(deps.get_current_approved_user),
+    current_user: models.User = Depends(
+        deps.get_current_approved_user_by_jwt_or_api_key
+    ),
     db: Session = Depends(deps.get_db),
-    project: schemas.Project = Depends(deps.can_read_project),
+    project: schemas.Project = Depends(deps.can_read_project_with_jwt_or_api_key),
 ) -> Any:
     """Retrieve project by id."""
     if format == "geojson":
@@ -81,7 +84,6 @@ def read_project(
 
 @router.get("", response_model=Union[List[schemas.project.Projects], FeatureCollection])
 def read_projects(
-    edit_only: bool = False,
     has_raster: bool = False,
     include_all: bool = False,
     format: str = Query("json", pattern="^(json|geojson)$"),
@@ -175,6 +177,13 @@ def deactivate_project(
     current_user: models.User = Depends(deps.get_current_approved_user),
     db: Session = Depends(deps.get_db),
 ) -> Any:
+    # Check if project is published
+    if project.is_published:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot deactivate project when it is published in a STAC catalog",
+        )
+
     deactivated_project = crud.project.deactivate(
         db, project_id=project.id, user_id=current_user.id
     )

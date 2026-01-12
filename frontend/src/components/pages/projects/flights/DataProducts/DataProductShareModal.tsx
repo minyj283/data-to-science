@@ -6,7 +6,7 @@ import Modal from '../../../../Modal';
 import { DataProduct } from '../../Project';
 import { useProjectContext } from '../../ProjectContext';
 import ShareControls from '../../../../maps/RasterSymbologySettings/RasterSymbologyAccessControls';
-import { useParams } from 'react-router-dom';
+import { useParams } from 'react-router';
 
 export default function DataProductShareModal({
   dataProduct,
@@ -31,7 +31,7 @@ export default function DataProductShareModal({
               className="flex items-center text-sky-600 text-sm cursor-pointer"
               onClick={() => setOpenShareModal(true)}
             >
-              <div className="relative rounded-full accent3 p-1 focus:outline-none">
+              <div className="relative rounded-full accent3 p-1 focus:outline-hidden">
                 {dataProduct.public ? (
                   <LockOpenIcon className="w-4 w-4" />
                 ) : (

@@ -1,11 +1,15 @@
 import { AxiosResponse } from 'axios';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 import { useMapContext } from './MapContext';
+import { useMapApiKeys } from './MapApiKeysContext';
 import { MapLayer } from '../pages/projects/Project';
 import CompareMap from './CompareMap';
 import HomeMap from './HomeMap';
+import PanoViewer from './PanoViewer';
 import PotreeViewer from './PotreeViewer';
+import PlayCanvasglTFViewer from './PlayCanvasglTFViewer';
+import LCCViewer from './LCCViewer';
 import { useMapLayerContext } from './MapLayersContext';
 
 import api from '../../api';
@@ -13,38 +17,60 @@ import { mapApiResponseToLayers } from './utils';
 import { useRasterSymbologyContext } from './RasterSymbologyContext';
 
 export default function MapViewMode() {
-  const {
-    activeDataProduct,
-    activeMapTool,
-    activeProject,
-    mapboxAccessTokenDispatch,
-  } = useMapContext();
+  const { activeDataProduct, activeMapTool, activeProject } = useMapContext();
+  const { mapboxAccessTokenDispatch, maptilerApiKeyDispatch } = useMapApiKeys();
   const {
     state: { layers },
     dispatch,
   } = useMapLayerContext();
-  const symbologyContext = useRasterSymbologyContext();
+  const { state: symbologyState, dispatch: symbologyDispatch } =
+    useRasterSymbologyContext();
+
+  // Store symbologyState in ref to access without triggering effect
+  const symbologyStateRef = useRef(symbologyState);
+  useEffect(() => {
+    symbologyStateRef.current = symbologyState;
+  }, [symbologyState]);
 
   useEffect(() => {
-    if (!import.meta.env.VITE_MAPBOX_ACCESS_TOKEN) {
+    if (
+      !import.meta.env.VITE_MAPBOX_ACCESS_TOKEN ||
+      !import.meta.env.VITE_MAPTILER_API_KEY
+    ) {
       fetch('/config.json')
         .then((response) => response.json())
         .then((config) => {
-          mapboxAccessTokenDispatch({
-            type: 'set',
-            payload: config.mapboxAccessToken,
-          });
+          if (config.mapboxAccessToken) {
+            mapboxAccessTokenDispatch({
+              type: 'set',
+              payload: config.mapboxAccessToken,
+            });
+          }
+          if (config.maptilerApiKey) {
+            maptilerApiKeyDispatch({
+              type: 'set',
+              payload: config.maptilerApiKey,
+            });
+          }
         })
         .catch((error) => {
           console.error('Failed to load config.json:', error);
         });
     } else {
-      mapboxAccessTokenDispatch({
-        type: 'set',
-        payload: import.meta.env.VITE_MAPBOX_ACCESS_TOKEN,
-      });
+      if (import.meta.env.VITE_MAPBOX_ACCESS_TOKEN) {
+        mapboxAccessTokenDispatch({
+          type: 'set',
+          payload: import.meta.env.VITE_MAPBOX_ACCESS_TOKEN,
+        });
+      }
+      if (import.meta.env.VITE_MAPTILER_API_KEY) {
+        maptilerApiKeyDispatch({
+          type: 'set',
+          payload: import.meta.env.VITE_MAPTILER_API_KEY,
+        });
+      }
     }
-  }, []);
+  }, [mapboxAccessTokenDispatch, maptilerApiKeyDispatch]);
 
   // Fetch map layers when a project is activated and
   // remove previous raster symbology settings from previous active project
@@ -64,8 +90,8 @@ export default function MapViewMode() {
     };
     if (activeProject) {
       // Remove any symbology settings for rasters from previously selected project
-      for (const rasterId in symbologyContext.state) {
-        symbologyContext.dispatch({
+      for (const rasterId in symbologyStateRef.current) {
+        symbologyDispatch({
           type: 'REMOVE_RASTER',
           rasterId: rasterId,
         });
@@ -73,15 +99,25 @@ export default function MapViewMode() {
       // Fetch map layers for selected project
       fetchMapLayers(activeProject.id);
     }
-  }, [activeProject]);
+  }, [activeProject, dispatch, symbologyDispatch]);
 
   if (activeMapTool === 'compare') {
     return <CompareMap />;
   } else if (
     !activeDataProduct ||
-    (activeDataProduct && activeDataProduct.data_type !== 'point_cloud')
+    (activeDataProduct &&
+      activeDataProduct.data_type !== 'point_cloud' &&
+      activeDataProduct.data_type !== 'panoramic' &&
+      activeDataProduct.data_type !== '3dgs')
   ) {
     return <HomeMap layers={layers} />;
+  } else if (activeDataProduct.data_type === 'panoramic') {
+    return <PanoViewer imageUrl={activeDataProduct.url} />;
+  } else if (activeDataProduct.data_type === '3dgs') {
+    if (activeDataProduct.url.endsWith('.lcc')) {
+      return <LCCViewer lccUrl={activeDataProduct.url} />;
+    }
+    return <PlayCanvasglTFViewer src={activeDataProduct.url} />;
   } else {
     const copcPath = activeDataProduct.url;
     return <PotreeViewer copcPath={copcPath} />;

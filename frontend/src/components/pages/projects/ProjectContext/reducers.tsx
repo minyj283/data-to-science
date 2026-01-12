@@ -1,11 +1,6 @@
-import {
-  GeoJSONFeature,
-  IForester,
-  Flight,
-  MapLayer,
-  ProjectModule,
-} from '../Project';
-import { Project } from '../ProjectList';
+import { IForester } from '../Project';
+import { GeoJSONFeature, MapLayer } from '../Project';
+import { Flight, ProjectDetail, ProjectModule } from '../Project';
 import { ProjectMember } from '../ProjectAccess';
 
 import {
@@ -113,6 +108,11 @@ function mapLayersReducer(state: MapLayer[], action: MapLayersAction) {
         return state;
       }
     }
+    case 'updateOne': {
+      return state.map((layer) =>
+        layer.layer_id === action.payload.layer_id ? action.payload : layer
+      );
+    }
     case 'remove': {
       if (action.payload) {
         if (state.length > 0 && action.payload.length === 1) {
@@ -138,7 +138,7 @@ function mapLayersReducer(state: MapLayer[], action: MapLayersAction) {
   }
 }
 
-function projectReducer(state: Project | null, action: ProjectAction) {
+function projectReducer(state: ProjectDetail | null, action: ProjectAction) {
   switch (action.type) {
     case 'set': {
       return action.payload;

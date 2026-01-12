@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import {
   ArrowRightIcon,
   ArrowUpOnSquareIcon,
@@ -9,8 +9,11 @@ import {
   TrashIcon,
 } from '@heroicons/react/24/outline';
 
-import { DataProduct } from './pages/projects/Project';
-import { Project } from './pages/projects/ProjectList';
+import {
+  DataProduct,
+  ProjectDetail,
+  ProjectItem,
+} from './pages/projects/Project';
 import { Status } from './Alert';
 
 import api from '../api';
@@ -30,7 +33,7 @@ interface LinkButton extends React.AnchorHTMLAttributes<HTMLAnchorElement> {
 }
 
 interface LinkOutlineButton
-  extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  extends React.AnchorHTMLAttributes<HTMLAnchorElement> {
   children: React.ReactNode;
   target?: string;
   size?: string;
@@ -99,17 +102,16 @@ export function LinkOutlineButton({
   ...props
 }: LinkOutlineButton) {
   return (
-    <Link to={url} target={target}>
-      <button
-        className={classNames(
-          getButtonSizeClassNames(size),
-          'w-full border-2 border-accent3 text-accent3 rounded-md py-2 px-4 w-full hover:bg-accent3 hover:text-white ease-in-out duration-300'
-        )}
-        type="button"
-        {...props}
-      >
-        {children}
-      </button>
+    <Link
+      to={url}
+      target={target}
+      className={classNames(
+        getButtonSizeClassNames(size),
+        'inline-block w-full border-2 border-accent3 text-accent3 rounded-md py-2 px-4 text-center hover:bg-accent3 hover:text-white ease-in-out duration-300 no-underline'
+      )}
+      {...props}
+    >
+      {children}
     </Link>
   );
 }
@@ -131,7 +133,7 @@ export function LinkButton({
               icon === 'trash'
                 ? 'bg-red-600 hover:bg-red-700 border-red-700 hover:border-red-800'
                 : 'bg-accent3 hover:bg-accent3-dark border-accent3 hover:border-accent3-dark',
-              'cursor-pointer border-2 rounded-md w-full text-center text-white ease-in-out duration-300'
+              'border-2 rounded-md w-full text-center text-white ease-in-out duration-300'
             )
           )}
           type="button"
@@ -239,7 +241,7 @@ export function CopyURLButton({
 
 interface CopyShortenURLButton extends CopyURLButton {
   dataProduct: DataProduct;
-  project: Project;
+  project: ProjectDetail | ProjectItem;
   setStatus: React.Dispatch<React.SetStateAction<Status | null>>;
 }
 
@@ -274,7 +276,7 @@ export function CopyShortURLButton({
           msg: 'Failed to copy short URL',
         });
       }
-    } catch (error) {
+    } catch {
       setIsFetchingShortUrl(false);
       setButtonText(copyText);
       setStatus({
@@ -333,6 +335,7 @@ export function DownloadQRButton({
         { responseType: 'blob' }
       );
       if (response.data) {
+        setIsFetchingShortUrl(false);
         closeShareButton();
         setQrCode(response.data);
         setTimeout(() => setButtonText(title), 2000);
@@ -344,7 +347,7 @@ export function DownloadQRButton({
           msg: 'Failed to generate QR Code',
         });
       }
-    } catch (error) {
+    } catch {
       setIsFetchingShortUrl(false);
       setButtonText(title);
       setStatus({

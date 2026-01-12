@@ -1,13 +1,13 @@
 import { Form, Formik } from 'formik';
 import { useState } from 'react';
-import { useRevalidator } from 'react-router-dom';
+import { useRevalidator } from 'react-router';
 import { MapIcon } from '@heroicons/react/24/outline';
 
 import Alert from '../../Alert';
 import { LinkButton } from '../../Buttons';
 import { EditField, Editing, SelectField, TextField } from '../../InputFields';
 import Modal from '../../Modal';
-import { Project } from './Project';
+import { ProjectDetail } from './Project';
 import { useProjectContext } from './ProjectContext';
 import ProjectDeleteModal from './ProjectDeleteModal';
 import ProjectFormMap from './ProjectFormMap';
@@ -20,7 +20,7 @@ import { projectUpdateValidationSchema } from './validationSchema';
 import api from '../../../api';
 
 interface ProjectDetailEditForm {
-  project: Project;
+  project: ProjectDetail;
   teams: Team[];
 }
 
@@ -65,7 +65,7 @@ export default function ProjectDetailEditForm({
             revalidator.revalidate();
           }
           setIsEditing(null);
-        } catch (err) {
+        } catch {
           setIsEditing(null);
         }
       }}
@@ -87,6 +87,12 @@ export default function ProjectDetailEditForm({
                   <TextField name="title" />
                 )}
               </EditField>
+              {project.created_by && (
+                <span className="block text-sm text-gray-500">
+                  Created by: {project.created_by.first_name}{' '}
+                  {project.created_by.last_name}
+                </span>
+              )}
               <EditField
                 fieldName="description"
                 isEditing={isEditing}
@@ -209,21 +215,22 @@ export default function ProjectDetailEditForm({
               ]}
             />
           </Table>
-
           {projectRole === 'owner' ? (
             <div className="flex flex-row justify-end gap-4 mt-4">
               <LinkButton url={`/projects/${project.id}/access`} size="sm">
                 Manage Access
               </LinkButton>
-
               <LinkButton url={`/projects/${project.id}/modules`} size="sm">
                 Manage Modules
               </LinkButton>
-
+              {import.meta.env.VITE_STAC_ENABLED === 'true' && (
+                <LinkButton url={`/projects/${project.id}/stac`} size="sm">
+                  Manage STAC
+                </LinkButton>
+              )}
               <ProjectDeleteModal project={project} />
             </div>
           ) : null}
-
           {status && status.type && status.msg ? (
             <div className="mt-4">
               <Alert alertType={status.type}>{status.msg}</Alert>

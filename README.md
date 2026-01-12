@@ -1,19 +1,23 @@
 # Data to Science
 
+<p align="center">
+  <img src="docs/assets/d2s-screenshot1.png" width="45%" />
+  <img src="docs/assets/d2s-screenshot2.png" width="45%" />
+</p>
+<p align="center">
+  <img src="docs/assets/d2s-screenshot3.png" width="45%" />
+  <img src="docs/assets/d2s-screenshot4.png" width="45%" />
+</p>
+
 ## What is D2S?
 
-The Data to Science (D2S) platform at Purdue University is an innovative, open-source initiative designed to facilitate data sharing and collaboration among researchers. Developed by Jinha Jung, an associate professor of civil engineering, and his team, the platform primarily focuses on housing data from unmanned aerial vehicles (UAVs) used in agricultural and forestry research.
+The Data to Science (D2S) platform is an innovative, open-source initiative designed to facilitate data sharing and collaboration among researchers worldwide. Developed by Jinha Jung, an associate professor of civil engineering at Purdue University, and his team, the platform primarily focuses on housing data from unmanned aerial vehicles (UAVs) used in agricultural and forestry research.
 
-The D2S platform aims to create a data-driven open science community that promotes sustained innovation. Researchers can upload, manage, and share their UAV data, making it accessible to a broader audience. This collaborative approach helps in advancing research by providing a centralized repository of valuable datasets from various projects worldwide.
-
-<figure>
-  <img src="docs/assets/d2s_overview.png" alt="System Overview Diagram">
-  <figcaption>Overview of D2S System</figcaption>
-</figure>
+D2S aims to create a data-driven open science community that promotes sustained innovation. Researchers can upload, manage, and share their UAV data, making it accessible to a broader audience. This collaborative approach helps in advancing research by providing a centralized repository of valuable datasets from various projects worldwide. The platform is open-source, allowing anyone to deploy it in their own environment, ensuring flexibility and adaptability to different research needs.
 
 ## 🌟 What Makes D2S Unique?
 
-The Data to Science (D2S) platform at Purdue University stands out from other data-sharing platforms due to several unique features and approaches:
+The Data to Science (D2S) platform stands out from other data-sharing platforms due to several unique features and approaches:
 
 1. **Specialization in UAV Data:** Unlike many general data-sharing platforms, D2S is specifically designed to manage and share data from unmanned aerial vehicles (UAVs), making it particularly valuable for agricultural and forestry research.
 2. **Open-Source and Free Access:** D2S is an open-source platform, ensuring that researchers worldwide can access and contribute to the data repository without any cost barriers.
@@ -21,10 +25,64 @@ The Data to Science (D2S) platform at Purdue University stands out from other da
 4. **Alignment with Open Science Mandates:** D2S aligns with the White House Office of Technology and Policy mandates on openness in scientific enterprise, ensuring that federally funded research and supporting data are disclosed to the public at no cost.
 5. **User-Centric Development:** The platform is developed with input from its users, ensuring that the tools and features meet the specific needs of the research community. This user-driven approach helps in creating a more effective and user-friendly platform.
 6. **Training and Support:** D2S offers training workshops and support to help researchers get acquainted with the platform's tools and capabilities, ensuring they can make the most of its features.
+7. **Self-Deployment Capability:** D2S can be deployed in any environment that supports Docker, providing researchers with the flexibility to integrate the platform into their existing infrastructure. This capability ensures that the platform can be customized and scaled according to specific research requirements.
 
 These aspects make D2S a powerful tool for researchers looking to manage, share, and collaborate on UAV data, particularly in the fields of agriculture and forestry.
 
-## ⚙️ Getting started
+## ⚡ Quick Start
+
+### 📋 Prerequisites
+
+[Docker Engine](https://docs.docker.com/engine/install/) and [Docker Compose](https://docs.docker.com/compose/install/) are required to run the container with the following instructions. If you can successfully run `docker --version` and `docker compose --version` from a terminal then you are ready to proceed to the next section.
+
+### Copy env example files
+
+1. Navigate to the root directory of the repository.
+2. Copy `backend.example.env` to a new file named `backend.env`.
+   ```
+   cp backend.example.env backend.env
+   ```
+3. Copy `db.example.env` to a new file named `db.env`.
+   ```
+   cp db.example.env db.env
+   ```
+4. Copy `frontend.example.env` to a new file named `frontend.env`.
+   ```
+   cp frontend.example.env frontend.env
+   ```
+
+### Create tusd-data directory for uploads
+
+1. Create a folder for data to be stored during the upload process.
+   ```
+   mkdir tusd-data
+   ```
+
+### ▶️ Start the containers
+
+1. Use the following command to run the service containers in the background:
+   ```
+   docker compose -f docker-compose.quickstart.yml up -d
+   ```
+
+### ⏹️ Stop the containers
+
+1. Use the following command to stop the containers:
+   ```
+   docker compose -f docker-compose.quickstart.yml stop
+   ```
+
+### 🌍 Accessing the web application
+
+The Data To Science web application can be accessed from `http://localhost:8000`. It may take up to a minute for the backend to finish initializing. If you are running D2S on a virtual machine or remote server and accessing it via a LAN IP over HTTP, update `HTTP_COOKIE_SECURE` in your `backend.env` file to:
+
+```env
+HTTP_COOKIE_SECURE=0
+```
+
+This allows cookies to work correctly in non-localhost HTTP environments.
+
+## ⚙️ Getting started with local code
 
 ### 📋 Prerequisites
 
@@ -73,10 +131,11 @@ These aspects make D2S a powerful tool for researchers looking to manage, share,
    **Environment variables**
 
 - `VITE_MAPBOX_ACCESS_TOKEN`: Mapbox access token for satellite imagery (optional).
+- `VITE_MAPTILER_API_KEY`: Maptiler API key for OSM labels (optional).
 
 3. Open `backend.env` in a text editor. Below is a list of the environment variables that can be set inside `backend.env`. You may use the default values or change them as needed.
 
-   If you do not assign a value to `SECRET_KEY`, a key will automatically be generated for you. Note to developers: A new key will be generated each time a change is made to the backend code. This will invalidate any JWT tokens signed with the previous key. To prevent this behavior, set a secret key in `backend.env`.
+   You must provide a value for `SECRET_KEY` in your `backend.env` file. Use a cryptographically secure random string of at least 32 characters.
 
    **Environment variables**
 
@@ -84,8 +143,14 @@ These aspects make D2S a powerful tool for researchers looking to manage, share,
    - `API_DOMAIN`: Domain used for accessing the application (e.g., http://localhost or https://customdomain)
    - `CELERY_BROKER_URL`: Address for local redis service.
    - `CELERY_RESULT_BACKEND`: Address for local redis service.
+   - `ENABLE_BREEDBASE`: Enable/disable Breedbase connection endpoints (true/false).
+   - `ENABLE_CAMPAIGNS`: Enable/disable campaign management endpoints (true/false).
+   - `ENABLE_IFORESTER`: Enable/disable iForester integration endpoints (true/false).
+   - `ENABLE_STAC`: Enable/disable STAC (SpatioTemporal Asset Catalog) endpoints (true/false).
+   - `ENABLE_OPENTELEMETRY`: Enable/disable OpenTelemetry. Must also uncomment the `otel-collector` container and toggle the `backend` and `titiler` OpenTelemetry related environment settings in the docker compose config. Disabled by default.
    - `EXTENSIONS`: Can be used to enable extensions. Should be left blank typically.
    - `EXTERNAL_STORAGE`: Internal mount point for external storage. Should be blank unless you have a binding mount for external storage.
+   - `EXTERNAL_VIEWER_URL`: Web application for displaying published STAC Items (optional).
    - `MAIL_ENABLED`: Enable SMTP email by changing value from 0 to 1.
    - `MAIL_SERVER`: SMTP server address.
    - `MAIL_USERNAME`: Username for SMTP server.
@@ -100,6 +165,11 @@ These aspects make D2S a powerful tool for researchers looking to manage, share,
    - `RABBITMQ_USERNAME`: RabbitMQ username. Leave blank.
    - `RABBITMQ_PASSWORD`: RabbitMQ password. Leave blank.
    - `SECRET_KEY`: Secret key for signing and verifying JWT tokens.
+   - `STAC_API_KEY`: Secret key that can be used for verification by STAC API.
+   - `STAC_API_URL`: URL for a STAC API.
+   - `STAC_API_TEST_URL`: URL for a STAC API that can be used for testing.
+   - `STAC_BROWSER_URL`: URL for STAC Browser site connected to the STAC API.
+   - `TURNSTILE_SECRET_KEY`: Cloudflare Turnstile secret key for bot protection on registration (optional). Leave empty to disable.
    - `HTTP_COOKIE_SECURE`: Set to 1 to only send cookies over HTTPS, 0 to allow HTTP.
    - `LIMIT_MAX_REQUESTS`: Maximum number of requests a worker will handle before being restarted.
    - `UVICORN_WORKERS`: Number of uvicorn workers.
@@ -129,6 +199,7 @@ These aspects make D2S a powerful tool for researchers looking to manage, share,
 
    - `VITE_META_OG_IMAGE`: Preview image URL for social media shares.
    - `VITE_META_OG_URL`: Hostname for site.
+   - `VITE_TURNSTILE_SITE_KEY`: Cloudflare Turnstile site key for bot protection on registration (optional). Leave empty to disable.
 
 ### 🛠️ Build Docker images for services
 
@@ -190,6 +261,33 @@ After creating the new migration, use the following command to update to the tab
 ```
 docker compose exec backend alembic upgrade head
 ```
+
+## 🗺️ Generating Vector Format Files (GeoParquet & FlatGeobuf)
+
+Vector layers are automatically exported to GeoParquet and FlatGeobuf formats for efficient access from QGIS and other desktop GIS tools. For existing vector layers created before these features were added, use the backfill command to generate format files:
+
+```bash
+# Generate all formats (GeoParquet and FlatGeobuf) for all vector layers
+docker compose exec backend python app/utils/generate_vector_formats.py
+
+# Generate only GeoParquet for all layers
+docker compose exec backend python app/utils/generate_vector_formats.py --format parquet
+
+# Generate only FlatGeobuf for all layers
+docker compose exec backend python app/utils/generate_vector_formats.py --format flatgeobuf
+
+# Generate for a specific project
+docker compose exec backend python app/utils/generate_vector_formats.py --project-id <project-uuid>
+
+# Force regeneration of existing files
+docker compose exec backend python app/utils/generate_vector_formats.py --force
+```
+
+The command will display progress per format and provide a summary of generated, skipped, and failed files for each format.
+
+# Example Deployment
+
+An example instance of the Data to Science platform can be found at [https://ps2.d2s.org](https://ps2.d2s.org). This instance is managed by the Geospatial Data Science Lab at Purdue University and is open to the public. While this instance is available for use, the D2S platform is designed to be self-deployable, allowing researchers to host their own instances tailored to their specific needs.
 
 # 📘 Documentation
 

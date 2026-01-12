@@ -1,23 +1,27 @@
-from datetime import date
 import logging
 import json
-from typing import List, Optional, Sequence, Tuple, TypedDict
+from typing import List, Optional, Sequence, TypedDict
 from uuid import UUID
 
 from fastapi import status
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import and_, func, select, update
 from sqlalchemy.exc import MultipleResultsFound
-from sqlalchemy.orm import joinedload, Session
+from sqlalchemy.orm import joinedload, selectinload, Session
 
 from app import crud
 from app.crud.base import CRUDBase
+from app.models.data_product import DataProduct
+from app.models.file_permission import FilePermission
+from app.models.flight import Flight
 from app.models.location import Location
 from app.models.module_type import ModuleType
 from app.models.project import Project
 from app.models.project_like import ProjectLike
 from app.models.project_member import ProjectMember
 from app.models.project_module import ProjectModule
+from app.models.project_type import ProjectType
+from app.models.raw_data import RawData
 from app.models.team_member import TeamMember
 from app.models.user import User
 from app.models.utils.utcnow import utcnow
@@ -28,7 +32,7 @@ from app.schemas.project import (
     Project as ProjectSchema,
     Projects,
 )
-from app.schemas.role import Role
+from app.schemas.team_member import Role
 
 
 logger = logging.getLogger("__name__")
@@ -91,7 +95,11 @@ class CRUDProject(CRUDBase[Project, ProjectCreate, ProjectUpdate]):
         setattr(project_db_obj, "role", "owner")
         # add project memebers to db
         member_db_obj = ProjectMember(
-            member_id=owner_id, project_id=project_db_obj.id, role=Role.OWNER
+            member_id=owner_id,
+            project_id=project_db_obj.id,
+            project_type=ProjectType.PROJECT,
+            project_uuid=project_db_obj.id,
+            role=Role.OWNER,
         )
         with db as session:
             session.add(member_db_obj)
@@ -107,6 +115,8 @@ class CRUDProject(CRUDBase[Project, ProjectCreate, ProjectUpdate]):
                         ProjectMember(
                             member_id=team_member.member_id,
                             project_id=project_db_obj.id,
+                            project_type=ProjectType.PROJECT,
+                            project_uuid=project_db_obj.id,
                             role=team_member.role,
                         )
                     )
@@ -166,6 +176,7 @@ class CRUDProject(CRUDBase[Project, ProjectCreate, ProjectUpdate]):
             .where(Project.id == project_id)
             .where(Project.is_active)
             .where(ProjectMember.member_id == user_id)
+            .options(selectinload(Project.owner))
         )
         with db as session:
             try:
@@ -212,6 +223,16 @@ class CRUDProject(CRUDBase[Project, ProjectCreate, ProjectUpdate]):
                 setattr(project[0], "flight_count", flight_count)
                 setattr(project[0], "most_recent_flight", most_recent_flight)
                 setattr(project[0], "data_product_count", data_product_count)
+                # Add project owner details (from eager-loaded relationship)
+                setattr(
+                    project[0],
+                    "created_by",
+                    {
+                        "first_name": project[0].owner.first_name,
+                        "last_name": project[0].owner.last_name,
+                        "email": project[0].owner.email,
+                    } if project[0].owner else None,
+                )
                 return {
                     "response_code": status.HTTP_200_OK,
                     "message": "Project fetched successfully",
@@ -231,6 +252,35 @@ class CRUDProject(CRUDBase[Project, ProjectCreate, ProjectUpdate]):
         has_raster: bool = False,
         include_all: bool = False,
     ) -> List[Projects]:
+        # Build aggregation subquery for flight and data product counts
+        # This eliminates N+1 queries by computing counts in SQL
+        flight_stats_subquery = (
+            select(
+                Flight.project_id,
+                func.count(func.distinct(Flight.id))
+                .filter(Flight.is_active)
+                .label("flight_count"),
+                func.max(Flight.acquisition_date)
+                .filter(Flight.is_active)
+                .label("most_recent_flight"),
+                func.count(DataProduct.id)
+                .filter(and_(Flight.is_active, DataProduct.is_active))
+                .label("data_product_count"),
+                func.count(DataProduct.id)
+                .filter(
+                    and_(
+                        Flight.is_active,
+                        DataProduct.is_active,
+                        DataProduct.data_type != "point_cloud",
+                    )
+                )
+                .label("raster_count"),
+            )
+            .outerjoin(DataProduct, DataProduct.flight_id == Flight.id)
+            .group_by(Flight.project_id)
+            .subquery()
+        )
+
         # query to select active projects associated with user
         if include_all and user.is_superuser:
             statement = (
@@ -247,9 +297,24 @@ class CRUDProject(CRUDBase[Project, ProjectCreate, ProjectUpdate]):
                     )
                     .exists()
                     .label("liked"),
+                    func.coalesce(flight_stats_subquery.c.flight_count, 0).label(
+                        "flight_count"
+                    ),
+                    flight_stats_subquery.c.most_recent_flight,
+                    func.coalesce(flight_stats_subquery.c.data_product_count, 0).label(
+                        "data_product_count"
+                    ),
+                    func.coalesce(flight_stats_subquery.c.raster_count, 0).label(
+                        "raster_count"
+                    ),
                 )
                 .join(Project.location)
+                .outerjoin(
+                    flight_stats_subquery,
+                    flight_stats_subquery.c.project_id == Project.id,
+                )
                 .where(Project.is_active)
+                .options(selectinload(Project.team))
             )
         else:
             statement = (
@@ -267,27 +332,63 @@ class CRUDProject(CRUDBase[Project, ProjectCreate, ProjectUpdate]):
                     )
                     .exists()
                     .label("liked"),
+                    func.coalesce(flight_stats_subquery.c.flight_count, 0).label(
+                        "flight_count"
+                    ),
+                    flight_stats_subquery.c.most_recent_flight,
+                    func.coalesce(flight_stats_subquery.c.data_product_count, 0).label(
+                        "data_product_count"
+                    ),
+                    func.coalesce(flight_stats_subquery.c.raster_count, 0).label(
+                        "raster_count"
+                    ),
                 )
                 .join(Project.members)
                 .join(Project.location)
+                .outerjoin(
+                    flight_stats_subquery,
+                    flight_stats_subquery.c.project_id == Project.id,
+                )
                 .where(and_(Project.is_active, ProjectMember.member_id == user.id))
+                .options(selectinload(Project.team))
             )
+
+        # Apply has_raster filter in SQL if requested
+        if has_raster:
+            statement = statement.where(flight_stats_subquery.c.raster_count > 0)
+
         with db as session:
             final_projects = []
             # iterate over each returned project
             for project in session.execute(statement).all():
                 # unpack project
                 if include_all and user.is_superuser:
-                    project_obj, center_x, center_y, liked = project
+                    (
+                        project_obj,
+                        center_x,
+                        center_y,
+                        liked,
+                        flight_count,
+                        most_recent_flight,
+                        data_product_count,
+                        raster_count,
+                    ) = project
                 else:
-                    project_obj, member_obj, center_x, center_y, liked = project
+                    (
+                        project_obj,
+                        member_obj,
+                        center_x,
+                        center_y,
+                        liked,
+                        flight_count,
+                        most_recent_flight,
+                        data_product_count,
+                        raster_count,
+                    ) = project
                 # add center x, y attributes to project obj
                 setattr(project_obj, "centroid", Centroid(x=center_x, y=center_y))
                 setattr(project_obj, "liked", liked)
-                # count of project's active flights and most recent flight date
-                flight_count, most_recent_flight, data_product_count = (
-                    get_flight_count_and_most_recent_flight(project_obj)
-                )
+                # Set counts from SQL aggregations (no more Python loops!)
                 setattr(project_obj, "data_product_count", data_product_count)
                 setattr(project_obj, "flight_count", flight_count)
                 setattr(project_obj, "most_recent_flight", most_recent_flight)
@@ -297,10 +398,7 @@ class CRUDProject(CRUDBase[Project, ProjectCreate, ProjectUpdate]):
                 else:
                     setattr(project_obj, "role", member_obj.role)
                 # add updated project obj to final list
-                if not has_raster or (
-                    has_raster and has_flight_with_raster_data_project(project_obj)
-                ):
-                    final_projects.append(project_obj)
+                final_projects.append(project_obj)
 
             return final_projects
 
@@ -350,7 +448,7 @@ class CRUDProject(CRUDBase[Project, ProjectCreate, ProjectUpdate]):
                     (team_member.member_id, team_member.role)
                     for team_member in team_members
                 ],
-                project_id=project_id,
+                project_uuid=project_id,
             )
 
         # Finish updating project
@@ -358,7 +456,7 @@ class CRUDProject(CRUDBase[Project, ProjectCreate, ProjectUpdate]):
         try:
             # Get project role for user updating project
             project_member = crud.project_member.get_by_project_and_member_id(
-                db, project_id=project_id, member_id=user_id
+                db, project_uuid=project_id, member_id=user_id
             )
             if project_member:
                 setattr(updated_project, "role", project_member.role)
@@ -378,6 +476,76 @@ class CRUDProject(CRUDBase[Project, ProjectCreate, ProjectUpdate]):
             "message": "Project updated successfully",
             "result": updated_project_schema,
         }
+
+    def update_project_visibility(
+        self, db: Session, project_id: UUID, is_public: bool = True
+    ) -> Optional[Project]:
+        """
+        Updates the project's publication status and the visibility of all its data products and raw data.
+
+        Args:
+            db (Session): Database session.
+            project_id (UUID): ID of project to update.
+            is_public (bool): Whether to make the project, its data products, and raw data public (True)
+                             or private (False).
+
+        Returns:
+            Project: Updated project object.
+        """
+        with db as session:
+            # Get FilePermission IDs for DataProducts in the project
+            data_product_file_permission_ids = (
+                select(FilePermission.id)
+                .join(DataProduct, FilePermission.file_id == DataProduct.id)
+                .join(Flight, DataProduct.flight_id == Flight.id)
+                .join(Project, Flight.project_id == Project.id)
+                .where(Project.id == project_id)
+                .where(Project.is_active)
+                .where(Flight.is_active)
+                .where(DataProduct.is_active)
+                .scalar_subquery()
+            )
+
+            # Get FilePermission IDs for RawData in the project
+            raw_data_file_permission_ids = (
+                select(FilePermission.id)
+                .join(RawData, FilePermission.raw_data_id == RawData.id)
+                .join(Flight, RawData.flight_id == Flight.id)
+                .join(Project, Flight.project_id == Project.id)
+                .where(Project.id == project_id)
+                .where(Project.is_active)
+                .where(Flight.is_active)
+                .where(RawData.is_active)
+                .scalar_subquery()
+            )
+
+            # Update FilePermissions for both DataProducts and RawData
+            update_file_permissions_sql = (
+                update(FilePermission)
+                .where(
+                    FilePermission.id.in_(data_product_file_permission_ids)
+                    | FilePermission.id.in_(raw_data_file_permission_ids)
+                )
+                .values(is_public=is_public)
+            )
+
+            # Update the project publication status
+            update_project_sql = (
+                update(Project)
+                .where(Project.id == project_id)
+                .where(Project.is_active)
+                .values(is_published=is_public)
+            )
+
+            # Execute the update queries
+            session.execute(update_file_permissions_sql)
+            session.execute(update_project_sql)
+
+            # Commit the changes
+            session.commit()
+
+            # Return the updated project
+            return self.get(db, project_id)
 
     def deactivate(
         self, db: Session, project_id: UUID, user_id: UUID
@@ -411,58 +579,6 @@ class CRUDProject(CRUDBase[Project, ProjectCreate, ProjectUpdate]):
         setattr(deactivated_project, "role", "owner")
 
         return deactivated_project
-
-
-def get_flight_count_and_most_recent_flight(
-    project: Project,
-) -> Tuple[int, Optional[date], int]:
-    """Calculate total number of active flights and data products in a project and
-    find date for most recent flight.
-
-    Args:
-        project (Project): Project with flights.
-
-    Returns:
-        Tuple[int, Optional[date], int]: Number of flights and data products in project and date of most recent flight.
-    """
-    data_product_count = 0
-    flight_count = 0
-    most_recent_flight = None
-
-    for flight in project.flights:
-        if flight.is_active:
-            if most_recent_flight:
-                if most_recent_flight < flight.acquisition_date:
-                    most_recent_flight = flight.acquisition_date
-            else:
-                most_recent_flight = flight.acquisition_date
-            flight_count += 1
-
-            for data_product in flight.data_products:
-                if data_product.is_active:
-                    data_product_count += 1
-
-    return flight_count, most_recent_flight, data_product_count
-
-
-def has_flight_with_raster_data_project(project: Project) -> bool:
-    """Checks if a project has at least one active flight with one active data product.
-
-    Args:
-        project (Project): Project with flights.
-
-    Returns:
-        bool: True if project has raster data product, False if it doesn't.
-    """
-    has_at_least_one_raster_data_product = False
-
-    for flight in project.flights:
-        if flight.is_active:
-            for data_product in flight.data_products:
-                if data_product.data_type != "point_cloud" and data_product.is_active:
-                    has_at_least_one_raster_data_product = True
-
-    return has_at_least_one_raster_data_product
 
 
 def is_team_member(user_id: UUID, team_members: Sequence[TeamMember]) -> bool:

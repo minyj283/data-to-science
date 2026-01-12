@@ -1,27 +1,34 @@
 import axios from 'axios';
-import { createContext, useContext, useEffect, useReducer } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useReducer,
+} from 'react';
 import { v4 as uuidv4 } from 'uuid';
 
 import {
   DataProduct,
   Flight,
   MapLayerFeatureCollection,
+  ProjectItem,
 } from '../pages/projects/Project';
-import { Project } from '../pages/projects/ProjectList';
 import {
   ActiveDataProductAction,
   ActiveMapToolAction,
   ActiveProjectAction,
   FlightsAction,
   GeoRasterIdAction,
-  MapboxAccessTokenAction,
   MapTool,
   ProjectsAction,
   ProjectsLoadedAction,
   ProjectFilterSelectionAction,
   ProjectsVisibleAction,
+  SelectedTeamIdsAction,
   TileScaleAction,
 } from './Maps';
+import { areProjectsEqual } from './utils';
 
 function activeDataProductReducer(
   state: DataProduct | null,
@@ -62,7 +69,7 @@ function activeMapToolReducer(state: MapTool, action: ActiveMapToolAction) {
 }
 
 function activeProjectReducer(
-  state: Project | null,
+  state: ProjectItem | null,
   action: ActiveProjectAction
 ) {
   switch (action.type) {
@@ -99,19 +106,6 @@ function geoRasterIdReducer(state: string, action: GeoRasterIdAction) {
     }
     case 'remove': {
       return '';
-    }
-    default:
-      return state;
-  }
-}
-
-function mapboxAccessTokenReducer(
-  state: string,
-  action: MapboxAccessTokenAction
-) {
-  switch (action.type) {
-    case 'set': {
-      return action.payload;
     }
     default:
       return state;
@@ -159,10 +153,18 @@ function projectLayersReducer(
   }
 }
 
-function projectsReducer(state: Project[] | null, action: ProjectsAction) {
+function projectsReducer(state: ProjectItem[] | null, action: ProjectsAction) {
   switch (action.type) {
     case 'set': {
-      return action.payload;
+      // Only update if projects are new or differ from current state
+      if (
+        !state ||
+        !action.payload ||
+        !areProjectsEqual(state, action.payload)
+      ) {
+        return action.payload;
+      }
+      return state;
     }
     case 'clear': {
       return null;
@@ -180,6 +182,23 @@ function projectFilterSelectionReducer(
   switch (action.type) {
     case 'set': {
       return action.payload ? action.payload : [];
+    }
+    case 'reset': {
+      return [];
+    }
+    default: {
+      return state;
+    }
+  }
+}
+
+function selectedTeamIdsReducer(
+  state: string[],
+  action: SelectedTeamIdsAction
+) {
+  switch (action.type) {
+    case 'set': {
+      return action.payload;
     }
     case 'reset': {
       return [];
@@ -242,18 +261,16 @@ const context: {
   activeDataProductDispatch: React.Dispatch<ActiveDataProductAction>;
   activeMapTool: MapTool;
   activeMapToolDispatch: React.Dispatch<ActiveMapToolAction>;
-  activeProject: Project | null;
+  activeProject: ProjectItem | null;
   activeProjectDispatch: React.Dispatch<ActiveProjectAction>;
   flights: Flight[];
   geoRasterId: string;
   geoRasterIdDispatch: React.Dispatch<GeoRasterIdAction>;
-  mapboxAccessToken: string;
-  mapboxAccessTokenDispatch: React.Dispatch<MapboxAccessTokenAction>;
   mapViewProperties: MapViewPropertiesState;
   mapViewPropertiesDispatch: React.Dispatch<MapViewPropertiesAction>;
   projectLayers: MapLayerFeatureCollection[];
   projectLayersDispatch: React.Dispatch<ProjectLayersAction>;
-  projects: Project[] | null;
+  projects: ProjectItem[] | null;
   projectsDispatch: React.Dispatch<ProjectsAction>;
   projectsLoaded: ProjectsLoadedState;
   projectsLoadedDispatch: React.Dispatch<ProjectsLoadedAction>;
@@ -261,6 +278,8 @@ const context: {
   projectFilterSelectionDispatch: React.Dispatch<ProjectFilterSelectionAction>;
   projectsVisible: string[];
   projectsVisibleDispatch: React.Dispatch<ProjectsVisibleAction>;
+  selectedTeamIds: string[];
+  selectedTeamIdsDispatch: React.Dispatch<SelectedTeamIdsAction>;
   tileScale: number;
   tileScaleDispatch: React.Dispatch<TileScaleAction>;
 } = {
@@ -273,8 +292,6 @@ const context: {
   flights: [],
   geoRasterId: '',
   geoRasterIdDispatch: () => {},
-  mapboxAccessToken: '',
-  mapboxAccessTokenDispatch: () => {},
   mapViewProperties: null,
   mapViewPropertiesDispatch: () => {},
   projectLayers: [],
@@ -287,6 +304,8 @@ const context: {
   projectFilterSelectionDispatch: () => {},
   projectsVisible: [],
   projectsVisibleDispatch: () => {},
+  selectedTeamIds: [],
+  selectedTeamIdsDispatch: () => {},
   tileScale: 2,
   tileScaleDispatch: () => {},
 };
@@ -312,10 +331,7 @@ export function MapContextProvider({
   );
   const [flights, flightsDispatch] = useReducer(flightsReducer, []);
   const [geoRasterId, geoRasterIdDispatch] = useReducer(geoRasterIdReducer, '');
-  const [mapboxAccessToken, mapboxAccessTokenDispatch] = useReducer(
-    mapboxAccessTokenReducer,
-    ''
-  );
+
   const [mapViewProperties, mapViewPropertiesDispatch] = useReducer(
     mapViewPropertiesReducer,
     null
@@ -337,6 +353,10 @@ export function MapContextProvider({
     projectsVisibleReducer,
     []
   );
+  const [selectedTeamIds, selectedTeamIdsDispatch] = useReducer(
+    selectedTeamIdsReducer,
+    []
+  );
   const [tileScale, tileScaleDispatch] = useReducer(tileScaleReducer, 2);
 
   async function getFlights(projectId) {
@@ -349,7 +369,7 @@ export function MapContextProvider({
       if (response) {
         flightsDispatch({ type: 'set', payload: response.data });
       }
-    } catch (err) {
+    } catch {
       console.log('Unable to fetch flights');
     }
   }
@@ -366,40 +386,56 @@ export function MapContextProvider({
     if (activeDataProduct && activeProject) {
       getFlights(activeProject.id);
     }
-  }, [activeDataProduct]);
+  }, [activeDataProduct, activeProject]);
+
+  const contextValue = useMemo(
+    () => ({
+      activeDataProduct,
+      activeDataProductDispatch,
+      activeMapTool,
+      activeMapToolDispatch,
+      activeProject,
+      activeProjectDispatch,
+      flights,
+      geoRasterId,
+      geoRasterIdDispatch,
+
+      mapViewProperties,
+      mapViewPropertiesDispatch,
+      projectFilterSelection,
+      projectFilterSelectionDispatch,
+      projectLayers,
+      projectLayersDispatch,
+      projects,
+      projectsDispatch,
+      projectsLoaded,
+      projectsLoadedDispatch,
+      projectsVisible,
+      projectsVisibleDispatch,
+      selectedTeamIds,
+      selectedTeamIdsDispatch,
+      tileScale,
+      tileScaleDispatch,
+    }),
+    [
+      activeDataProduct,
+      activeMapTool,
+      activeProject,
+      flights,
+      geoRasterId,
+      mapViewProperties,
+      projectFilterSelection,
+      projectLayers,
+      projects,
+      projectsLoaded,
+      projectsVisible,
+      selectedTeamIds,
+      tileScale,
+    ]
+  );
 
   return (
-    <MapContext.Provider
-      value={{
-        activeDataProduct,
-        activeDataProductDispatch,
-        activeMapTool,
-        activeMapToolDispatch,
-        activeProject,
-        activeProjectDispatch,
-        flights,
-        geoRasterId,
-        geoRasterIdDispatch,
-        mapboxAccessToken,
-        mapboxAccessTokenDispatch,
-        mapViewProperties,
-        mapViewPropertiesDispatch,
-        projectFilterSelection,
-        projectFilterSelectionDispatch,
-        projectLayers,
-        projectLayersDispatch,
-        projects,
-        projectsDispatch,
-        projectsLoaded,
-        projectsLoadedDispatch,
-        projectsVisible,
-        projectsVisibleDispatch,
-        tileScale,
-        tileScaleDispatch,
-      }}
-    >
-      {children}
-    </MapContext.Provider>
+    <MapContext.Provider value={contextValue}>{children}</MapContext.Provider>
   );
 }
 

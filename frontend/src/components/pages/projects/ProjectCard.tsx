@@ -1,13 +1,13 @@
 import { isAxiosError } from 'axios';
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { PaperAirplaneIcon } from '@heroicons/react/24/outline';
+import { Link } from 'react-router';
+import { PaperAirplaneIcon, UserGroupIcon } from '@heroicons/react/24/outline';
 import { StarIcon as StarIconOutline } from '@heroicons/react/24/outline';
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
 
 import CountBadge from '../../CountBadge';
 import { GridIcon } from './GridIcon';
-import { Project } from './ProjectList';
+import { ProjectItem } from './Project';
 
 import api from '../../../api';
 import { getCategory } from '../../maps/utils';
@@ -16,7 +16,7 @@ export default function ProjectCard({
   project,
   revalidate,
 }: {
-  project: Project;
+  project: ProjectItem;
   revalidate: () => void;
 }) {
   const [liked, setLiked] = useState(project.liked);
@@ -58,13 +58,13 @@ export default function ProjectCard({
       className="block h-40"
     >
       <article
-        className="relative flex items-center w-96 h-40 shadow bg-white transition hover:shadow-xl"
+        className="relative flex items-center w-96 h-40 shadow-sm bg-white transition hover:shadow-xl"
         title={project.title}
       >
         <div className="absolute top-2 right-2">
           <button
             type="button"
-            className="focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded-full"
+            className="focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded-full"
             onClick={handleOnBookmarkClick}
             disabled={isLoading}
             aria-label={liked ? 'Remove bookmark' : 'Bookmark project'}
@@ -118,17 +118,28 @@ export default function ProjectCard({
             </p>
           </div>
           <div className="mt-auto flex items-center justify-between">
-            <CountBadge
-              count={project.flight_count}
-              color="sky"
-              label="Flights"
-              icon={<PaperAirplaneIcon className="h-4 w-4 -ms-1 me-1.5" />}
-              rank={getCategory(project.flight_count, 'flight')}
-            />
+            <div className="flex flex-col items-start gap-1">
+              <CountBadge
+                count={project.flight_count}
+                color="sky"
+                label="Flights"
+                icon={<PaperAirplaneIcon className="h-4 w-4 -ms-1 me-1.5" />}
+                rank={getCategory(project.flight_count, 'flight')}
+              />
+              {project.team ? (
+                <span
+                  className="inline-flex items-center justify-center rounded-full px-2.5 py-0.5 bg-indigo-50 text-indigo-700"
+                  title={project.team.title}
+                >
+                  <UserGroupIcon className="h-4 w-4 -ms-1 me-1.5" />
+                  <p className="whitespace-nowrap text-xs">Team</p>
+                </span>
+              ) : null}
+            </div>
             <CountBadge
               count={project.data_product_count}
               color="green"
-              label="Data Products"
+              label="Data"
               icon={<GridIcon className="h-4 w-4 -ms-1 me-1.5" />}
               rank={getCategory(project.data_product_count, 'data_product')}
             />

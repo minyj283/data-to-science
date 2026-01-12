@@ -49,7 +49,7 @@ export const clusterCountLayer: LayerProps = {
   filter: ['has', 'point_count'],
   layout: {
     'text-field': '{point_count_abbreviated}',
-    'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
+    'text-font': ['Open Sans Semibold'],
     'text-size': ['step', ['get', 'point_count'], 12, 25, 16, 50, 22],
   },
   paint: {
@@ -123,7 +123,7 @@ export const getProjectVectorLayer = (
           source: layer.id,
           'source-layer': 'public.vector_layers',
           paint: {
-            'fill-color': layer.color,
+            'fill-color': layer.fill || layer.color,
             'fill-opacity': layer.opacity / 100,
           },
         },
@@ -133,7 +133,7 @@ export const getProjectVectorLayer = (
           source: layer.id,
           'source-layer': 'public.vector_layers',
           paint: {
-            'line-color': '#FFFFFF',
+            'line-color': layer.color,
             'line-width': 2,
           },
         },

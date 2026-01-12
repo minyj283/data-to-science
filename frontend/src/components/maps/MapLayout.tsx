@@ -3,6 +3,7 @@ import { useState } from 'react';
 import LayerPane from './LayerPane';
 
 import { MapContextProvider } from './MapContext';
+import { MapApiKeysContextProvider } from './MapApiKeysContext';
 import { MapLayerProvider } from './MapLayersContext';
 import MapViewMode from './MapViewMode';
 import ProjectLoader from './ProjectLoader';
@@ -31,8 +32,10 @@ export default function MapLayout() {
               <LayerPane hidePane={hidePane} toggleHidePane={toggleHidePane} />
             </div>
             {/* page content */}
-            <div className="w-full">
-              <MapViewMode />
+            <div className="w-full h-full">
+              <MapApiKeysContextProvider>
+                <MapViewMode />
+              </MapApiKeysContextProvider>
             </div>
           </div>
         </RasterSymbologyProvider>

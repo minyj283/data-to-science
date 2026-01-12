@@ -89,8 +89,16 @@ def upload_field_shapefile(
     current_user: models.User = Depends(deps.get_current_approved_user),
     db: Session = Depends(deps.get_db),
 ) -> Any:
-    """Handles zipped shapefile upload and converts to geojson format."""
-    geojson = handle_zipped_shapefile(files.file, required_geom_type="Polygon")
+    """Handles GeoJSON file or zipped shapefile upload and converts to geojson format."""
+    if files.filename is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No file uploaded",
+        )
+    if files.filename.endswith(".geojson") or files.filename.endswith(".json"):
+        geojson = handle_geojson(files.file, required_geom_type="Polygon")
+    else:
+        geojson = handle_zipped_shapefile(files.file, required_geom_type="Polygon")
     return geojson
 
 
@@ -109,9 +117,114 @@ def upload_vector_layer_shapefile(
     return geojson
 
 
+def validate_geojson_coordinates(geojson: FeatureCollection) -> None:
+    """
+    Validates that all coordinates in a GeoJSON FeatureCollection are within valid geographic ranges.
+    Raises HTTPException if invalid coordinates are found.
+
+    Args:
+        geojson: The FeatureCollection to validate
+
+    Raises:
+        HTTPException: If coordinates are outside valid geographic ranges
+    """
+    for i, feature in enumerate(geojson.features):
+        if hasattr(feature.geometry, "coordinates"):
+            # Handle different geometry types
+            if feature.geometry.type == "Point":
+                coords = [feature.geometry.coordinates]
+            elif feature.geometry.type in ["LineString", "MultiPoint"]:
+                coords = feature.geometry.coordinates
+            elif feature.geometry.type in ["Polygon", "MultiLineString"]:
+                # Flatten polygon/multilinestring coordinates
+                coords = []
+                for ring in feature.geometry.coordinates:
+                    coords.extend(ring)
+            elif feature.geometry.type == "MultiPolygon":
+                # Flatten multipolygon coordinates
+                coords = []
+                for polygon in feature.geometry.coordinates:
+                    for ring in polygon:
+                        coords.extend(ring)
+            else:
+                continue  # Skip unknown geometry types
+
+            # Validate each coordinate pair
+            for coord in coords:
+                if len(coord) >= 2:
+                    lng, lat = coord[0], coord[1]
+                    if not (-180 <= lng <= 180):
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Invalid longitude {lng} in feature {i}. Must be between -180 and 180.",
+                        )
+                    if not (-90 <= lat <= 90):
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Invalid latitude {lat} in feature {i}. Must be between -90 and 90.",
+                        )
+
+
+def handle_geojson(
+    file: BinaryIO, required_geom_type: str | None = None
+) -> FeatureCollection:
+    uploaded_file = file.read()
+    geojson_dict = json.loads(uploaded_file)
+
+    # Validate the structure and create appropriate object
+    if not isinstance(geojson_dict, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid geojson file - must be a valid JSON object",
+        )
+
+    geojson_type = geojson_dict.get("type")
+    if geojson_type == "FeatureCollection":
+        try:
+            geojson = FeatureCollection(**geojson_dict)
+            if required_geom_type and required_geom_type.lower() == "polygon":
+                for feat in geojson.features:
+                    if not isinstance(feat.geometry, Polygon) and not isinstance(
+                        feat.geometry, MultiPolygon
+                    ):
+                        raise ValueError("Invalid geometry type")
+            # Validate geographic coordinates
+            validate_geojson_coordinates(geojson)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid FeatureCollection: {str(e)}",
+            )
+        return geojson
+    elif geojson_type == "Feature":
+        try:
+            feature: Feature = Feature(**geojson_dict)
+            if required_geom_type and required_geom_type.lower() == "polygon":
+                if not isinstance(feature.geometry, Polygon) and not isinstance(
+                    feature.geometry, MultiPolygon
+                ):
+                    raise ValueError("Invalid geometry type")
+            # Create FeatureCollection and validate coordinates
+            feature_collection = FeatureCollection(
+                features=[feature], type="FeatureCollection"
+            )
+            validate_geojson_coordinates(feature_collection)
+            return feature_collection
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid Feature: {str(e)}",
+            )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid geojson file - must be a Feature or FeatureCollection",
+        )
+
+
 def handle_zipped_shapefile(
     file: BinaryIO, required_geom_type: str | None = None
-) -> dict:
+) -> FeatureCollection:
     uploaded_file = file.read()
     geojson = {}
     try:
@@ -156,7 +269,7 @@ def handle_zipped_shapefile(
             detail="Unable process shapefile",
         )
 
-    return geojson
+    return FeatureCollection(**geojson)
 
 
 def shapefile_to_geojson(

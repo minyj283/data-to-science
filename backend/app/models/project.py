@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+from app.models.utils.utcnow import utcnow
 
 
 if TYPE_CHECKING:
@@ -42,12 +43,30 @@ class Project(Base):
         ForeignKey("teams.id", ondelete="SET NULL"), nullable=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_published: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=utcnow(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=utcnow(),
+        onupdate=utcnow(),
+        nullable=False,
+    )
     deactivated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
+    uas_members: Mapped[List["ProjectMember"]] = relationship(
+        "ProjectMember",
+        back_populates="uas_project",
+        cascade="all, delete-orphan",
+        primaryjoin="and_(ProjectMember.project_type == 'PROJECT', ProjectMember.project_uuid == Project.id)",
+        foreign_keys="[ProjectMember.project_uuid]",
+    )
+    # TODO: Remove this relationship after migration
     members: Mapped[List["ProjectMember"]] = relationship(
-        back_populates="project", cascade="all, delete"
+        back_populates="project", cascade="all, delete-orphan"
     )
     modules: Mapped[List["ProjectModule"]] = relationship(back_populates="project")
     location: Mapped["Location"] = relationship(back_populates="project")

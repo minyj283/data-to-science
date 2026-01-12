@@ -32,7 +32,8 @@ export default function ProjectCluster({
   includeAll = false,
   setIsMapReady,
 }: ProjectClusterProps) {
-  const { projects, projectsLoaded, projectFilterSelection } = useMapContext();
+  const { projects, projectsLoaded, projectFilterSelection, selectedTeamIds } =
+    useMapContext();
 
   const [geojsonData, setGeojsonData] =
     useState<ProjectFeatureCollection | null>(null);
@@ -59,8 +60,17 @@ export default function ProjectCluster({
       );
     }
 
+    if (
+      projectFilterSelection.includes('myTeams') &&
+      selectedTeamIds.length > 0
+    ) {
+      filteredProjects = filteredProjects.filter(
+        (project) => project.team && selectedTeamIds.includes(project.team.id)
+      );
+    }
+
     return filteredProjects;
-  }, [projects, projectFilterSelection]);
+  }, [projects, projectFilterSelection, selectedTeamIds]);
 
   const projectsFeatureCollection = useMemo(() => {
     if (!filteredProjects || filteredProjects.length === 0) return null;
@@ -89,7 +99,7 @@ export default function ProjectCluster({
       setGeojsonData(projectsFeatureCollection);
       setGeojsonLoaded(true);
     }
-  }, [projectsLoaded, projectsFeatureCollection]);
+  }, [fetchFromAPI, projects, projectsLoaded, projectsFeatureCollection]);
 
   // Fetch project markers in geojson format from api when fetchFromAPI is true
   useEffect(() => {
@@ -124,7 +134,7 @@ export default function ProjectCluster({
     if (fetchFromAPI) {
       fetchGeojson();
     }
-  }, []);
+  }, [fetchFromAPI, includeAll]);
 
   // Zoom to extent of project markers
   useEffect(() => {
@@ -132,6 +142,15 @@ export default function ProjectCluster({
 
     // Fetch project GeoJSON data to calculate the bounds
     const bounds = calculateBoundsFromGeoJSON(geojsonData);
+
+    // Skip fitting bounds if they are invalid
+    if (!bounds) {
+      console.warn('Invalid or missing geographic bounds, skipping map fit');
+      if (setIsMapReady) {
+        setIsMapReady(true);
+      }
+      return;
+    }
 
     // Determine animation duration based on whether it's the first load
     const duration = isMapReady === undefined || isMapReady ? 1000 : 1;
@@ -150,7 +169,7 @@ export default function ProjectCluster({
       duration: duration,
       maxZoom: 16,
     });
-  }, [map, geojsonData, geojsonLoaded]);
+  }, [isMapReady, map, geojsonData, geojsonLoaded, setIsMapReady]);
 
   useEffect(() => {
     if (!map) return;

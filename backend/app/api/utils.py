@@ -3,9 +3,10 @@ import os
 import re
 import uuid
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 from urllib.parse import urlencode, quote_plus
 
+import geopandas as gpd
 from geojson_pydantic import Feature
 from pydantic import UUID4
 from sqlalchemy.orm import Session
@@ -74,6 +75,64 @@ def create_vector_layer_preview(
         vector_layer_preview.save(outname="preview.png")
 
     return preview_img
+
+
+def save_vector_layer_parquet(
+    project_id: uuid.UUID, layer_id: str, gdf: gpd.GeoDataFrame, static_dir: str
+) -> str:
+    """Generate and save GeoParquet file for a vector layer.
+
+    Args:
+        project_id (uuid.UUID): Project ID.
+        layer_id (str): Unique layer ID for FeatureCollection.
+        gdf (gpd.GeoDataFrame): GeoDataFrame containing vector layer features.
+        static_dir (str): Path to static directory (from get_static_dir()).
+
+    Returns:
+        str: Path to generated parquet file.
+    """
+    # Set output path for parquet file
+    parquet_dir = os.path.join(
+        static_dir, "projects", str(project_id), "vector", layer_id
+    )
+    # Create vector directory if needed
+    if not os.path.exists(parquet_dir):
+        os.makedirs(parquet_dir)
+    # Full path to parquet file
+    parquet_path = os.path.join(parquet_dir, f"{layer_id}.parquet")
+    # Save GeoDataFrame as GeoParquet with snappy compression
+    gdf.to_parquet(parquet_path, compression="snappy")
+
+    return parquet_path
+
+
+def save_vector_layer_flatgeobuf(
+    project_id: uuid.UUID, layer_id: str, gdf: gpd.GeoDataFrame, static_dir: str
+) -> str:
+    """Generate and save FlatGeobuf file for a vector layer.
+
+    Args:
+        project_id (uuid.UUID): Project ID.
+        layer_id (str): Unique layer ID for FeatureCollection.
+        gdf (gpd.GeoDataFrame): GeoDataFrame containing vector layer features.
+        static_dir (str): Path to static directory (from get_static_dir()).
+
+    Returns:
+        str: Path to generated FlatGeobuf file.
+    """
+    # Set output path for FlatGeobuf file
+    fgb_dir = os.path.join(
+        static_dir, "projects", str(project_id), "vector", layer_id
+    )
+    # Create vector directory if needed
+    if not os.path.exists(fgb_dir):
+        os.makedirs(fgb_dir)
+    # Full path to FlatGeobuf file
+    fgb_path = os.path.join(fgb_dir, f"{layer_id}.fgb")
+    # Save GeoDataFrame as FlatGeobuf
+    gdf.to_file(fgb_path, driver="FlatGeobuf")
+
+    return fgb_path
 
 
 def is_valid_uuid(id: str) -> bool:
@@ -339,3 +398,30 @@ def normalize_sensor_value(sensor: str) -> str:
         "other": "Other",
     }
     return sensor_mapping.get(sensor.lower(), sensor)
+
+
+def get_copc_z_unit(crs) -> Optional[str]:
+    """
+    Determine the Z-axis unit from a CRS object.
+    Returns unit name (e.g., 'metre', 'foot', 'US survey foot') or None.
+    """
+    if crs is None:
+        return None
+
+    # Look for vertical axis explicitly defined
+    for axis in crs.axis_info:
+        if axis.direction.lower() == "up":
+            return axis.unit_name
+
+    # Check compound CRS
+    if crs.is_compound:
+        for sub in crs.sub_crs_list:
+            if sub.is_vertical:
+                return sub.axis_info[0].unit_name
+
+    # Fallback: assume Z uses the same unit as XY
+    # This is common in LAS/COPC when only a 2D CRS is defined
+    if len(crs.axis_info) >= 2:
+        return crs.axis_info[0].unit_name
+
+    return None

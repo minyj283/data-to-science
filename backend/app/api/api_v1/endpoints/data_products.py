@@ -269,12 +269,33 @@ def update_data_product_data_type(
         upload_dir=upload_dir,
         user_id=current_user.id,
     )
-    # reject request if point cloud
+    if not data_product:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Data product not found"
+        )
+
+    if not data_type_in.data_type:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Data type is required"
+        )
+
+    # reject request if point cloud or panoramic
     if data_product.data_type.lower() == "point_cloud":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot change point cloud data type",
         )
+    if data_product.data_type.lower() == "panoramic":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot change panoramic data type",
+        )
+    if data_product.data_type.lower() == "3dgs":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot change 3D Gaussian Splatting data type",
+        )
+
     updated_data_product = crud.data_product.update_data_type(
         db, data_product_id=data_product_id, new_data_type=data_type_in.data_type
     )
@@ -292,6 +313,14 @@ def deactivate_data_product(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Access forbidden"
         )
+
+    # Check if project is published
+    if project.is_published:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot deactivate data product when project is published in a STAC catalog",
+        )
+
     deactivated_data_product = crud.data_product.deactivate(
         db, data_product_id=data_product_id
     )

@@ -10,7 +10,7 @@ from pydantic import (
     UUID4,
 )
 
-from app.utils.ImageProcessor import STACProperties
+from app.utils.stac import STACProperties
 
 data_type_char_limit_rule = Field(
     None, title="Name of data product's new data type", min_length=1, max_length=16
@@ -100,9 +100,9 @@ class ProcessingRequest(BaseModel):
         title="CHM Resolution",
         description="Spatial resolution for Canopy Height Model processing (0.1-10.0)",
     )
-    chmPercentile: int = Field(
-        ge=0,
-        le=100,
+    chmPercentile: float = Field(
+        ge=0.0,
+        le=100.0,
         title="CHM Percentile",
         description="Percentile value for Canopy Height Model processing (0-100)",
     )

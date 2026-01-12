@@ -7,10 +7,12 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+from app.models.utils.utcnow import utcnow
 
 if TYPE_CHECKING:
     from .flight import Flight
     from .job import Job
+    from .file_permission import FilePermission
 
 
 class RawData(Base):
@@ -28,12 +30,24 @@ class RawData(Base):
     is_initial_processing_completed: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
     )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=utcnow(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=utcnow(),
+        onupdate=utcnow(),
+        nullable=False,
+    )
     deactivated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
     flight: Mapped["Flight"] = relationship(back_populates="raw_data")
     jobs: Mapped[List["Job"]] = relationship(
+        back_populates="raw_data", cascade="all, delete"
+    )
+    file_permission: Mapped["FilePermission"] = relationship(
         back_populates="raw_data", cascade="all, delete"
     )
 

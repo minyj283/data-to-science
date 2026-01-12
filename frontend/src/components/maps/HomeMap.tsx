@@ -3,22 +3,26 @@ import './HomeMap.css';
 import { Feature } from 'geojson';
 import maplibregl from 'maplibre-gl';
 import { useEffect, useMemo, useState } from 'react';
-import Map, { NavigationControl, ScaleControl } from 'react-map-gl/maplibre';
-import { useLocation } from 'react-router-dom';
-// import { bbox } from '@turf/bbox';
+import Map, {
+  MapLayerMouseEvent,
+  NavigationControl,
+  ScaleControl,
+  ViewStateChangeEvent,
+} from 'react-map-gl/maplibre';
+import { useLocation } from 'react-router';
 
 import ColorBarControl from './ColorBarControl';
 import GeocoderControl from './GeocoderControl';
 import ProjectCluster from './ProjectCluster';
 import FeaturePopup from './FeaturePopup';
-import LayerControl from './LayerControl';
+import MeasureToolsToggle from './MeasureToolsToggle';
 import ProjectBoundary from './ProjectBoundary';
 import ProjectPopup from './ProjectPopup';
 import ProjectRasterTiles from './ProjectRasterTiles';
 import ProjectVectorTiles from './ProjectVectorTiles';
 
-// import { BBox } from './Maps';
 import { useMapContext } from './MapContext';
+import { useMapApiKeys } from './MapApiKeysContext';
 import { MapLayerProps } from './MapLayersContext';
 import {
   SingleBandSymbology,
@@ -27,7 +31,7 @@ import {
 
 import {
   getMapboxSatelliteBasemapStyle,
-  usgsImageryTopoBasemapStyle,
+  getWorldImageryTopoBasemapStyle,
 } from './styles/basemapStyles';
 
 import { isSingleBand } from './utils';
@@ -43,20 +47,34 @@ export type PopupInfoProps = {
 export default function HomeMap({ layers }: { layers: MapLayerProps[] }) {
   const [activeProjectBBox, setActiveProjectBBox] = useState<BBox | null>(null);
   const [isMapReady, setIsMapReady] = useState(false);
-  const [popupInfo, setPopupInfo] = useState<
-    PopupInfoProps | { [key: string]: any } | null
-  >(null);
+  const [popupInfo, setPopupInfo] = useState<PopupInfoProps | null>(null);
+  const [config, setConfig] = useState<{ osmLabelFilter?: string } | null>(
+    null
+  );
 
   const {
     activeDataProduct,
     activeProject,
-    mapboxAccessToken,
     projects,
     projectsVisibleDispatch,
   } = useMapContext();
+  const { mapboxAccessToken, maptilerApiKey } = useMapApiKeys();
   const symbologyContext = useRasterSymbologyContext();
 
   const { state } = useLocation();
+
+  // Load config for osmLabelFilter
+  useEffect(() => {
+    fetch('/config.json')
+      .then((response) => response.json())
+      .then((loadedConfig) => {
+        setConfig({ osmLabelFilter: loadedConfig.osmLabelFilter });
+      })
+      .catch((error) => {
+        console.error('Failed to load config.json:', error);
+        setConfig({}); // Set empty config on error
+      });
+  }, []);
 
   // Set map state to ready if user has zero projects
   useEffect(() => {
@@ -77,9 +95,9 @@ export default function HomeMap({ layers }: { layers: MapLayerProps[] }) {
     if (activeProject && !isMapReady) {
       setIsMapReady(true);
     }
-  }, [activeProject]);
+  }, [activeProject, isMapReady]);
 
-  const handleMapClick = (event) => {
+  const handleMapClick = (event: MapLayerMouseEvent) => {
     const map: maplibregl.Map = event.target;
 
     if (map.getLayer('unclustered-point')) {
@@ -128,7 +146,7 @@ export default function HomeMap({ layers }: { layers: MapLayerProps[] }) {
     }
   };
 
-  const handleMoveEnd = (event) => {
+  const handleMoveEnd = (event: ViewStateChangeEvent) => {
     if (!projects?.length) return;
 
     const mapInstance = event.target;
@@ -168,6 +186,7 @@ export default function HomeMap({ layers }: { layers: MapLayerProps[] }) {
           <ProjectRasterTiles
             boundingBox={boundingBox}
             dataProduct={activeDataProductSymbology.background}
+            beforeLayerId={activeDataProduct.id}
           />
         );
       } else {
@@ -181,8 +200,8 @@ export default function HomeMap({ layers }: { layers: MapLayerProps[] }) {
   const mapStyle = useMemo(() => {
     return mapboxAccessToken
       ? getMapboxSatelliteBasemapStyle(mapboxAccessToken)
-      : usgsImageryTopoBasemapStyle;
-  }, [mapboxAccessToken]);
+      : getWorldImageryTopoBasemapStyle(maptilerApiKey, config || undefined);
+  }, [mapboxAccessToken, maptilerApiKey, config]);
 
   return (
     <Map
@@ -197,6 +216,7 @@ export default function HomeMap({ layers }: { layers: MapLayerProps[] }) {
       }}
       mapboxAccessToken={mapboxAccessToken || undefined}
       mapStyle={mapStyle}
+      maxZoom={25}
       onClick={handleMapClick}
       onMoveEnd={handleMoveEnd}
     >
@@ -250,8 +270,8 @@ export default function HomeMap({ layers }: { layers: MapLayerProps[] }) {
         <ProjectBoundary setActiveProjectBBox={setActiveProjectBBox} />
       )}
 
-      {/* Project map layer controls */}
-      {activeProject && <LayerControl />}
+      {/* Measurement tool control */}
+      {activeProject && <MeasureToolsToggle />}
 
       {/* General controls */}
       {!activeProject && <GeocoderControl />}

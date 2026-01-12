@@ -8,25 +8,54 @@ import ProjectPopup from '../../maps/ProjectPopup';
 import { PopupInfoProps } from '../../maps/HomeMap';
 import {
   getMapboxSatelliteBasemapStyle,
-  usgsImageryTopoBasemapStyle,
+  getWorldImageryTopoBasemapStyle,
 } from '../../maps/styles/basemapStyles';
 
 export default function DashboardMap() {
   const [mapboxAccessToken, setMapboxAccessToken] = useState('');
+  const [maptilerApiKey, setMaptilerApiKey] = useState('');
   const [popupInfo, setPopupInfo] = useState<PopupInfoProps | null>(null);
+  const [config, setConfig] = useState<{ osmLabelFilter?: string } | null>(
+    null
+  );
 
   useEffect(() => {
-    if (!import.meta.env.VITE_MAPBOX_ACCESS_TOKEN) {
+    if (
+      !import.meta.env.VITE_MAPBOX_ACCESS_TOKEN ||
+      !import.meta.env.VITE_MAPTILER_API_KEY
+    ) {
       fetch('/config.json')
         .then((response) => response.json())
-        .then((config) => {
-          setMapboxAccessToken(config.mapboxAccessToken);
+        .then((loadedConfig) => {
+          if (loadedConfig.mapboxAccessToken) {
+            setMapboxAccessToken(loadedConfig.mapboxAccessToken);
+          }
+          if (loadedConfig.maptilerApiKey) {
+            setMaptilerApiKey(loadedConfig.maptilerApiKey);
+          }
+          setConfig({ osmLabelFilter: loadedConfig.osmLabelFilter });
         })
         .catch((error) => {
           console.error('Failed to load config.json:', error);
+          setConfig({}); // Set empty config on error
         });
     } else {
-      setMapboxAccessToken(import.meta.env.VITE_MAPBOX_ACCESS_TOKEN);
+      if (import.meta.env.VITE_MAPBOX_ACCESS_TOKEN) {
+        setMapboxAccessToken(import.meta.env.VITE_MAPBOX_ACCESS_TOKEN);
+      }
+      if (import.meta.env.VITE_MAPTILER_API_KEY) {
+        setMaptilerApiKey(import.meta.env.VITE_MAPTILER_API_KEY);
+      }
+      // Still need to load config for osmLabelFilter even if using env vars
+      fetch('/config.json')
+        .then((response) => response.json())
+        .then((loadedConfig) => {
+          setConfig({ osmLabelFilter: loadedConfig.osmLabelFilter });
+        })
+        .catch((error) => {
+          console.error('Failed to load config.json:', error);
+          setConfig({}); // Set empty config on error
+        });
     }
   }, []);
 
@@ -61,8 +90,8 @@ export default function DashboardMap() {
   const mapStyle = useMemo(() => {
     return mapboxAccessToken
       ? getMapboxSatelliteBasemapStyle(mapboxAccessToken)
-      : usgsImageryTopoBasemapStyle;
-  }, [mapboxAccessToken]);
+      : getWorldImageryTopoBasemapStyle(maptilerApiKey, config || undefined);
+  }, [mapboxAccessToken, maptilerApiKey, config]);
 
   return (
     <Map
@@ -77,6 +106,7 @@ export default function DashboardMap() {
       }}
       mapboxAccessToken={mapboxAccessToken || undefined}
       mapStyle={mapStyle}
+      maxZoom={25}
       reuseMaps={true}
       onClick={handleMapClick}
     >

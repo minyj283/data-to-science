@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import Map, {
   MapRef,
   NavigationControl,
@@ -10,10 +10,11 @@ import { point } from '@turf/helpers';
 import IForesterControl from './IForesterControl';
 import { useIForesterControlContext } from './IForesterContext';
 import { useProjectContext } from '../ProjectContext';
+import { useMapApiKeys } from '../../../maps/MapApiKeysContext';
 
 import {
   getMapboxSatelliteBasemapStyle,
-  usgsImageryTopoBasemapStyle,
+  getWorldImageryTopoBasemapStyle,
 } from '../../../maps/styles/basemapStyles';
 import IForesterCluster from './IForesterCluster';
 import { FeatureCollection } from 'geojson';
@@ -25,7 +26,7 @@ export function getUniqueValues(
 }
 
 export default function IForesterMap() {
-  const [mapboxAccessToken, setMapboxAccessToken] = useState<string>('');
+  const { mapboxAccessToken, maptilerApiKey } = useMapApiKeys();
   const { state, dispatch } = useIForesterControlContext();
   const { activeMarkerZoom, dbhMin, dbhMax, speciesSelection } = state;
   const { iforester } = useProjectContext();
@@ -66,22 +67,6 @@ export default function IForesterMap() {
     }
   }, [filteredLocationsGeoJSON]);
 
-  // Load mapbox access token
-  useEffect(() => {
-    if (!import.meta.env.VITE_MAPBOX_ACCESS_TOKEN) {
-      fetch('/config.json')
-        .then((response) => response.json())
-        .then((config) => {
-          setMapboxAccessToken(config.mapboxAccessToken);
-        })
-        .catch((error) => {
-          console.error('Failed to load config.json:', error);
-        });
-    } else {
-      setMapboxAccessToken(import.meta.env.VITE_MAPBOX_ACCESS_TOKEN);
-    }
-  }, []);
-
   // Set initial selected species
   useEffect(() => {
     if (iforester && iforester.length > 0 && speciesSelection.length === 0) {
@@ -92,7 +77,7 @@ export default function IForesterMap() {
         ) as string[],
       });
     }
-  }, [iforester]);
+  }, [dispatch, iforester, speciesSelection]);
 
   // Set initial DBH min and DBH max
   useEffect(() => {
@@ -100,23 +85,17 @@ export default function IForesterMap() {
       if (dbhMin === -1) {
         dispatch({
           type: 'SET_DBH_MIN',
-          payload: Math.min.apply(
-            Math,
-            iforester.map(({ dbh }) => dbh)
-          ),
+          payload: Math.min(...iforester.map(({ dbh }) => dbh)),
         });
       }
       if (dbhMax === -1) {
         dispatch({
           type: 'SET_DBH_MAX',
-          payload: Math.max.apply(
-            Math,
-            iforester.map(({ dbh }) => dbh)
-          ),
+          payload: Math.max(...iforester.map(({ dbh }) => dbh)),
         });
       }
     }
-  }, []);
+  }, [dbhMax, dbhMin, dispatch, iforester]);
 
   // Zoom to active marker when activeMarkerZoom changes
   useEffect(() => {
@@ -132,13 +111,13 @@ export default function IForesterMap() {
         dispatch({ type: 'SET_ACTIVE_MARKER_ZOOM', payload: '' });
       }
     }
-  }, [activeMarkerZoom]);
+  }, [activeMarkerZoom, dispatch, filteredLocations]);
 
   const mapStyle = useMemo(() => {
     return mapboxAccessToken
       ? getMapboxSatelliteBasemapStyle(mapboxAccessToken)
-      : usgsImageryTopoBasemapStyle;
-  }, [mapboxAccessToken]);
+      : getWorldImageryTopoBasemapStyle(maptilerApiKey);
+  }, [mapboxAccessToken, maptilerApiKey]);
 
   return (
     <Map
@@ -154,6 +133,7 @@ export default function IForesterMap() {
       }}
       mapboxAccessToken={mapboxAccessToken || undefined}
       mapStyle={mapStyle}
+      maxZoom={25}
       reuseMaps={true}
     >
       {/* Cluster markers */}

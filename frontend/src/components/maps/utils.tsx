@@ -1,13 +1,21 @@
-import { FeatureCollection, Point, Polygon } from 'geojson';
+import {
+  Feature,
+  FeatureCollection,
+  Geometry,
+  GeoJsonProperties,
+  Point,
+  Polygon,
+} from 'geojson';
+import maplibregl, { Map } from 'maplibre-gl';
 
 import {
   DataProduct,
   Flight,
   MapLayer,
   ProjectFeatureCollection,
+  ProjectItem,
   STACProperties,
 } from '../pages/projects/Project';
-import { Project } from '../pages/projects/ProjectList';
 import {
   SingleBandSymbology,
   MultibandSymbology,
@@ -16,14 +24,110 @@ import {
 type Bounds = [number, number, number, number];
 
 /**
+ * Validates if bounds are within valid geographic coordinate ranges.
+ * @param bounds Bounding box array [minLng, minLat, maxLng, maxLat].
+ * @returns True if bounds are valid, false otherwise.
+ */
+function isValidGeographicBounds(bounds: Bounds): boolean {
+  const [minLng, minLat, maxLng, maxLat] = bounds;
+
+  // Check latitude bounds (-90 to 90)
+  if (minLat < -90 || minLat > 90 || maxLat < -90 || maxLat > 90) {
+    return false;
+  }
+
+  // Check longitude bounds (-180 to 180)
+  if (minLng < -180 || minLng > 180 || maxLng < -180 || maxLng > 180) {
+    return false;
+  }
+
+  // Check that min values are less than or equal to max values
+  if (minLat > maxLat || minLng > maxLng) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Validates if a coordinate pair is within valid geographic ranges.
+ * @param lng Longitude value.
+ * @param lat Latitude value.
+ * @returns True if coordinates are valid, false otherwise.
+ */
+function isValidCoordinate(lng: number, lat: number): boolean {
+  return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+}
+
+/**
+ * Filters projects to remove those with invalid centroid coordinates.
+ * @param projects Array of projects to filter.
+ * @returns Filtered array with only projects having valid geographic coordinates.
+ */
+function filterValidProjects(projects: ProjectItem[]): ProjectItem[] {
+  return projects.filter((project) => {
+    if (!project.centroid) {
+      console.warn(
+        `Project ${project.id} missing centroid, excluding from map`
+      );
+      return false;
+    }
+
+    const isValid = isValidCoordinate(project.centroid.x, project.centroid.y);
+    if (!isValid) {
+      console.warn(
+        `Project ${project.id} has invalid coordinates (${project.centroid.x}, ${project.centroid.y}), excluding from map`
+      );
+    }
+
+    return isValid;
+  });
+}
+
+/**
+ * Filters GeoJSON features to remove those with invalid geographic coordinates.
+ * @param geojsonData Feature Collection to filter.
+ * @returns Filtered Feature Collection with only valid coordinates.
+ */
+function filterValidGeoJSONFeatures<
+  T extends ProjectFeatureCollection | FeatureCollection<Point | Polygon>
+>(geojsonData: T): T {
+  const validFeatures = geojsonData.features.filter((feature) => {
+    if (feature.geometry.type === 'Point') {
+      const [lng, lat] = feature.geometry.coordinates;
+      return isValidCoordinate(lng, lat);
+    } else if (feature.geometry.type === 'Polygon') {
+      // Check all coordinates in the polygon
+      const coordinates = feature.geometry.coordinates.flat(
+        Infinity
+      ) as number[];
+      for (let i = 0; i < coordinates.length; i += 2) {
+        const lng = coordinates[i];
+        const lat = coordinates[i + 1];
+        if (!isValidCoordinate(lng, lat)) {
+          return false;
+        }
+      }
+      return true;
+    }
+    return false;
+  });
+
+  return {
+    ...geojsonData,
+    features: validFeatures,
+  } as T;
+}
+
+/**
  * Calculates bounding box for features in GeoJSON Feature Collection. Supports
  * Point or Polygon geometry types.
  * @param geojsonData Feature Collection of Point or Polygon Feautres.
- * @returns Bounding box array.
+ * @returns Bounding box array if valid coordinates are found, null if no valid bounds.
  */
 function calculateBoundsFromGeoJSON(
   geojsonData: ProjectFeatureCollection | FeatureCollection<Point | Polygon>
-): Bounds {
+): Bounds | null {
   const bounds: Bounds = geojsonData.features.reduce(
     (bounds, feature) => {
       const [minLng, minLat, maxLng, maxLat] = bounds;
@@ -37,27 +141,52 @@ function calculateBoundsFromGeoJSON(
         for (let i = 0; i < coordinates.length; i += 2) {
           const lng = coordinates[i];
           const lat = coordinates[i + 1];
-          bounds[0] = Math.min(bounds[0], lng);
-          bounds[1] = Math.min(bounds[1], lat);
-          bounds[2] = Math.max(bounds[2], lng);
-          bounds[3] = Math.max(bounds[3], lat);
+
+          // Validate individual coordinates before using them
+          if (isValidCoordinate(lng, lat)) {
+            bounds[0] = Math.min(bounds[0], lng);
+            bounds[1] = Math.min(bounds[1], lat);
+            bounds[2] = Math.max(bounds[2], lng);
+            bounds[3] = Math.max(bounds[3], lat);
+          }
         }
 
         return bounds;
       } else if (feature.geometry.type === 'Point') {
         const [lng, lat] = feature.geometry.coordinates;
-        return [
-          Math.min(minLng, lng),
-          Math.min(minLat, lat),
-          Math.max(maxLng, lng),
-          Math.max(maxLat, lat),
-        ];
+
+        // Validate individual coordinates before using them
+        if (isValidCoordinate(lng, lat)) {
+          return [
+            Math.min(minLng, lng),
+            Math.min(minLat, lat),
+            Math.max(maxLng, lng),
+            Math.max(maxLat, lat),
+          ];
+        }
+
+        return bounds;
       } else {
         throw new Error('Unable to calculate bounds for GeoJSON data');
       }
     },
     [Infinity, Infinity, -Infinity, -Infinity]
   );
+
+  // Check if we found any valid coordinates (bounds would still be infinite if no valid coords)
+  if (
+    bounds[0] === Infinity ||
+    bounds[1] === Infinity ||
+    bounds[2] === -Infinity ||
+    bounds[3] === -Infinity
+  ) {
+    return null;
+  }
+
+  // Final validation of calculated bounds
+  if (!isValidGeographicBounds(bounds)) {
+    return null;
+  }
 
   return bounds;
 }
@@ -68,15 +197,19 @@ function calculateBoundsFromGeoJSON(
  * @returns Mapped vector layers.
  */
 const mapApiResponseToLayers = (layers: MapLayer[]) =>
-  layers.map((layer) => ({
-    id: layer.layer_id,
-    name: layer.layer_name,
-    checked: false,
-    type: layer.geom_type,
-    color: '#ffde21',
-    opacity: 100,
-    signedUrl: layer.signed_url,
-  }));
+  layers.map((layer) => {
+    const isPolygon = layer.geom_type.toLowerCase().includes('polygon');
+    return {
+      id: layer.layer_id,
+      name: layer.layer_name,
+      checked: false,
+      type: layer.geom_type,
+      color: isPolygon ? '#FFFFFF' : '#ffde21',
+      fill: isPolygon ? '#ffde21' : undefined,
+      opacity: 100,
+      signedUrl: layer.signed_url,
+    };
+  });
 
 function getDefaultStyle(
   dataProduct: DataProduct
@@ -236,7 +369,7 @@ const getSingleBandMinMax = (
       }
       return [symbology.userMin, symbology.userMax];
 
-    case 'meanStdDev':
+    case 'meanStdDev': {
       const stats = stacProps.raster?.[0]?.stats;
       if (!stats || stats.mean === undefined || stats.stddev === undefined) {
         console.warn('Stats missing, falling back to default min/max.');
@@ -244,7 +377,7 @@ const getSingleBandMinMax = (
       }
       const deviation = stats.stddev * symbology.meanStdDev;
       return [stats.mean - deviation, stats.mean + deviation];
-
+    }
     default:
       console.warn(`Unexpected symbology mode: ${symbology.mode}`);
       return defaultMinMax;
@@ -348,11 +481,11 @@ const getMultibandMinMax = (
  * Checks local storage for previously stored projects.
  * @returns Array of projects retrieved from local storage.
  */
-function getLocalStorageProjects(): Project[] | null {
+function getLocalStorageProjects(): ProjectItem[] | null {
   if ('projects' in localStorage) {
     const lsProjectsString = localStorage.getItem('projects');
     if (lsProjectsString) {
-      const lsProjects: Project[] = JSON.parse(lsProjectsString);
+      const lsProjects: ProjectItem[] = JSON.parse(lsProjectsString);
       if (lsProjects && lsProjects.length > 0) {
         return lsProjects;
       }
@@ -412,7 +545,7 @@ function getTitilerQueryParams(
  * @param projects Array of projects with unique `id` strings.
  * @returns Array of sorted projects.
  */
-function sortProjects(projects: Project[]): Project[] {
+function sortProjects(projects: ProjectItem[]): ProjectItem[] {
   return projects.slice().sort((a, b) => a.id.localeCompare(b.id));
 }
 
@@ -424,8 +557,8 @@ function sortProjects(projects: Project[]): Project[] {
  * @returns True if both arrays match, otherwise false.
  */
 function areProjectsEqual(
-  oldProjects: Project[],
-  newProjects: Project[]
+  oldProjects: ProjectItem[],
+  newProjects: ProjectItem[]
 ): boolean {
   const sortedOld = sortProjects(oldProjects);
   const sortedNew = sortProjects(newProjects);
@@ -438,7 +571,7 @@ function areProjectsEqual(
  * the API differ.
  * @param projects Projects returned from API.
  */
-function setLocalStorageProjects(projects: Project[]): void {
+function setLocalStorageProjects(projects: ProjectItem[]): void {
   const projectsString = JSON.stringify(projects);
   const storedProjects = getLocalStorageProjects();
 
@@ -490,11 +623,76 @@ const isElevationDataProduct = (dataProduct: DataProduct): boolean => {
   );
 };
 
+/**
+ * Fit a MapLibre map view to the bounds of a GeoJSON Feature or Geometry.
+ *
+ * @param map - The MapLibre GL map instance
+ * @param geo - A GeoJSON Feature or Geometry object
+ * @param padding - Optional padding in pixels (default: 40)
+ * @param duration - Optional animation duration in ms (default: 500)
+ */
+const fitMapToGeoJSON = (
+  map: Map,
+  geo: Geometry | Feature<Geometry, GeoJsonProperties> | FeatureCollection,
+  padding = 40,
+  duration = 500
+) => {
+  const bounds = new maplibregl.LngLatBounds();
+
+  const pushCoord = (c: number[]) => {
+    if (Array.isArray(c) && c.length >= 2) {
+      bounds.extend([c[0], c[1]]);
+    }
+  };
+
+  const extendFromGeometry = (geometry: Geometry) => {
+    switch (geometry.type) {
+      case 'Point':
+        pushCoord(geometry.coordinates as number[]);
+        break;
+      case 'MultiPoint':
+      case 'LineString':
+        (geometry.coordinates as number[][]).forEach(pushCoord);
+        break;
+      case 'MultiLineString':
+      case 'Polygon':
+        (geometry.coordinates as number[][][]).forEach((ring) =>
+          ring.forEach(pushCoord)
+        );
+        break;
+      case 'MultiPolygon':
+        (geometry.coordinates as number[][][][]).forEach((poly) =>
+          poly.forEach((ring) => ring.forEach(pushCoord))
+        );
+        break;
+      default:
+        console.warn('Unsupported geometry type:', geometry.type);
+    }
+  };
+
+  if ('type' in geo) {
+    if (geo.type === 'Feature') {
+      extendFromGeometry(geo.geometry);
+    } else if (geo.type === 'FeatureCollection') {
+      geo.features.forEach((f) => extendFromGeometry(f.geometry));
+    } else {
+      extendFromGeometry(geo as Geometry);
+    }
+  }
+
+  if (!bounds.isEmpty()) {
+    map.fitBounds(bounds, { padding, duration });
+  }
+};
+
 export {
   areProjectsEqual,
   calculateBoundsFromGeoJSON,
   createDefaultSingleBandSymbology,
   createDefaultMultibandSymbology,
+  filterValidGeoJSONFeatures,
+  filterValidProjects,
+  fitMapToGeoJSON,
   getCategory,
   getDefaultStyle,
   getHillshade,

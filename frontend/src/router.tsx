@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter } from 'react-router';
 
 // pages and data loaders
 import Dashboard from './components/pages/admin/Dashboard';
@@ -42,9 +42,17 @@ import ProjectAccess from './components/pages/projects/ProjectAccess';
 import ProjectDetail, {
   loader as projectDetailLoader,
 } from './components/pages/projects/ProjectDetail';
+import ProjectLayout from './components/pages/projects/ProjectLayout';
 import ProjectModules from './components/pages/projects/ProjectModules';
+import ProjectSTACPublishing, {
+  loader as stacPublishingLoader,
+} from './components/pages/projects/stac/ProjectSTACPublishing';
+import STACDisabled from './components/pages/projects/stac/STACDisabled';
 import RegistrationForm from './components/pages/auth/RegistrationForm';
 import { RasterSymbologyProvider } from './components/maps/RasterSymbologyContext';
+import ShareLCCViewer from './components/maps/ShareLCCViewer';
+import SharePanoViewer from './components/maps/SharePanoViewer';
+import SharePlayCanvasglTFViewer from './components/maps/SharePlayCanvasglTFViewer';
 import SharePotreeViewer from './components/maps/SharePotreeViewer';
 import Teams, { loader as teamsLoader } from './components/pages/teams/Teams';
 import TeamCreate, {
@@ -59,7 +67,6 @@ import Workspace, {
 
 import { RootPublic, RootProtected } from './components/layout/Root';
 import { RequireAdmin, RequireAuth } from './AuthContext';
-import ProjectLayout from './components/pages/projects/ProjectLayout';
 
 export const router = createBrowserRouter(
   [
@@ -107,9 +114,26 @@ export const router = createBrowserRouter(
           ],
         },
         {
+          path: '/share3dgs',
+          element: <RootProtected />,
+          children: [
+            { path: '/share3dgs', element: <SharePlayCanvasglTFViewer /> },
+          ],
+        },
+        {
+          path: '/sharepano',
+          element: <RootProtected />,
+          children: [{ path: '/sharepano', element: <SharePanoViewer /> }],
+        },
+        {
           path: '/sharepotree',
           element: <RootProtected />,
           children: [{ path: '/sharepotree', element: <SharePotreeViewer /> }],
+        },
+        {
+          path: '/sharelcc',
+          element: <RootProtected />,
+          children: [{ path: '/sharelcc', element: <ShareLCCViewer /> }],
         },
       ],
     },
@@ -159,6 +183,21 @@ export const router = createBrowserRouter(
               path: '/projects/:projectId/modules',
               element: <ProjectModules />,
             },
+            // Conditionally include STAC route based on environment variable
+            ...(import.meta.env.VITE_STAC_ENABLED === 'true'
+              ? [
+                  {
+                    path: '/projects/:projectId/stac',
+                    element: <ProjectSTACPublishing />,
+                    loader: stacPublishingLoader,
+                  },
+                ]
+              : [
+                  {
+                    path: '/projects/:projectId/stac',
+                    element: <STACDisabled />,
+                  },
+                ]),
             {
               path: '/projects/:projectId/campaigns/create',
               element: <FieldCampaignCreate />,
@@ -242,14 +281,5 @@ export const router = createBrowserRouter(
         },
       ],
     },
-  ],
-  {
-    future: {
-      v7_fetcherPersist: true,
-      v7_normalizeFormMethod: true,
-      v7_relativeSplatPath: true,
-      v7_skipActionErrorRevalidation: true,
-      v7_partialHydration: true,
-    },
-  }
+  ]
 );

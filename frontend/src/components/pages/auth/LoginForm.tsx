@@ -1,7 +1,7 @@
 import { isAxiosError } from 'axios';
 import { FormProvider, SubmitHandler, useForm } from 'react-hook-form';
 import { Fragment, useContext, useState } from 'react';
-import { Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { yupResolver } from '@hookform/resolvers/yup';
 
 import Alert, { Status } from '../../Alert';
@@ -42,6 +42,7 @@ export default function LoginForm() {
   const { login } = useContext(AuthContext);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const methods = useForm<LoginFormData>({
     defaultValues,
@@ -60,7 +61,11 @@ export default function LoginForm() {
         username: values.email,
         password: values.password,
       };
-      await login(data).then(() => navigate('/home'));
+      await login(data).then(() => {
+        // Check if there's a redirect location from the navigation state
+        const from = location.state?.from?.pathname || '/home';
+        navigate(from, { replace: true });
+      });
     } catch (err) {
       if (isAxiosError(err)) {
         const errMsg = err.response?.data.detail;
@@ -87,7 +92,7 @@ export default function LoginForm() {
                             type: 'info',
                             msg: 'Email confirmation link sent',
                           });
-                      } catch (err) {
+                      } catch {
                         setStatus({
                           type: 'error',
                           msg: 'Unexpected error has occurred',

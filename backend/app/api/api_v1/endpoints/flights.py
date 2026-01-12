@@ -33,7 +33,7 @@ def create_flight(
             status_code=status.HTTP_404_NOT_FOUND, detail="Pilot not found"
         )
     pilot_is_project_member = crud.project_member.get_by_project_and_member_id(
-        db, project_id=project_id, member_id=pilot_id
+        db, project_uuid=project_id, member_id=pilot_id
     )
     if not pilot_is_project_member:
         raise HTTPException(
@@ -65,8 +65,10 @@ def read_flights(
     project_id: UUID,
     include_all: bool = True,
     has_raster: bool = False,
-    current_user: models.User = Depends(deps.get_current_approved_user),
-    project: schemas.Project = Depends(deps.can_read_project),
+    current_user: models.User = Depends(
+        deps.get_current_approved_user_by_jwt_or_api_key
+    ),
+    project: schemas.Project = Depends(deps.can_read_project_with_jwt_or_api_key),
     db: Session = Depends(deps.get_db),
 ) -> Any:
     """Retrieve flights associated with project user can access."""
@@ -110,7 +112,7 @@ def update_flight_project(
 ) -> Any:
     # check if user has permission to read/write to destination project
     project_membership = crud.project_member.get_by_project_and_member_id(
-        db, project_id=destination_project_id, member_id=current_user.id
+        db, project_uuid=destination_project_id, member_id=current_user.id
     )
     # raise exception if not project member or member without owner/manager role
     if not project_membership or project_membership.role != Role.OWNER:
@@ -184,6 +186,13 @@ def deactivate_flight(
     project: schemas.Project = Depends(deps.can_read_write_delete_project),
     db: Session = Depends(deps.get_db),
 ) -> Any:
+    # Check if project is published
+    if project.is_published:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot deactivate flight when project is published in a STAC catalog",
+        )
+
     deactivated_flight = crud.flight.deactivate(db, flight_id=flight.id)
     if not deactivated_flight:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST)

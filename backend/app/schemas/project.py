@@ -1,11 +1,19 @@
 from datetime import date, datetime
-from typing import Dict, Literal, Optional
+from typing import Dict, Optional
 
 from geojson_pydantic import Feature, Polygon
 from pydantic import BaseModel, Field, field_validator, ValidationInfo, UUID4
 
 from app.schemas.location import LocationCreate
 from app.schemas.role import Role
+from app.schemas.team import Team
+
+
+# project owner details
+class OwnerDetails(BaseModel):
+    first_name: str
+    last_name: str
+    email: str
 
 
 # shared properties
@@ -52,6 +60,7 @@ class ProjectInDBBase(ProjectBase, from_attributes=True):
     # internal
     id: UUID4
     is_active: bool
+    is_published: bool = False
     deactivated_at: Optional[datetime] = None
     owner_id: UUID4 = Field(exclude=True)
     # relationships
@@ -65,7 +74,10 @@ class Project(ProjectInDBBase):
     data_product_count: int = 0
     flight_count: int = 0
     most_recent_flight: Optional[date] = None
-    role: Role
+    role: Role = Role.VIEWER
+    created_by: Optional[OwnerDetails] = None
+    created_at: datetime
+    updated_at: datetime
 
 
 # project boundary centroid
@@ -75,7 +87,7 @@ class Centroid(BaseModel):
 
 
 # schema returned when multiple projects requested
-class Projects(BaseModel):
+class Projects(BaseModel, from_attributes=True):
     id: UUID4
     centroid: Centroid
     description: str
@@ -88,6 +100,7 @@ class Projects(BaseModel):
     role: Role
     title: str
     liked: Optional[bool] = False
+    team: Optional[Team] = None
 
 
 # additional properties stored in DB

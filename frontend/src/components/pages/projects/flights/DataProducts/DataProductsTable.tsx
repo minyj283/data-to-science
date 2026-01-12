@@ -1,9 +1,10 @@
 import { Fragment, useState } from 'react';
-import { NavigateFunction, useNavigate } from 'react-router-dom';
+import { NavigateFunction, useNavigate } from 'react-router';
 import {
   ArrowDownTrayIcon,
   CheckCircleIcon,
   CogIcon,
+  CubeIcon,
   EyeIcon,
   PhotoIcon,
   XCircleIcon,
@@ -13,25 +14,31 @@ import {
 import { Status } from '../../../../Alert';
 import { CopyURLButton } from '../../../../Buttons';
 import DataProductDeleteModal from './DataProductDeleteModal';
+import EditableDataType from './EditableDataType';
 import { useProjectContext } from '../../ProjectContext';
-import { Project } from '../../ProjectList';
 import Table, { TableBody, TableHead } from '../../../../Table';
 import ToolboxModal from './ToolboxModal';
 import DataProductShareModal from './DataProductShareModal';
-
-import { DataProduct } from '../../Project';
-import EditableDataType from './EditableDataType';
+import { DataProduct, ProjectDetail } from '../../Project';
 
 export function isGeoTIFF(dataType: string): boolean {
-  return dataType !== 'point_cloud';
+  return (
+    dataType !== 'point_cloud' &&
+    dataType !== 'panoramic' &&
+    dataType !== '3dgs'
+  );
 }
 
 export function getDataProductName(dataType: string): string {
   switch (dataType) {
+    case '3dgs':
+      return '3DGS';
     case 'dsm':
       return 'DSM';
     case 'ortho':
       return 'Orthomosaic';
+    case 'panoramic':
+      return 'Panoramic';
     case 'point_cloud':
       return 'Point Cloud';
     default:
@@ -43,7 +50,7 @@ function getDataProductActions(
   role: string | undefined,
   data: DataProduct[],
   navigate: NavigateFunction,
-  project: Project | null
+  project: ProjectDetail | null
 ) {
   const getDeleteAction = (dataProduct: DataProduct) => ({
     key: `action-delete-${dataProduct.id}`,
@@ -112,23 +119,42 @@ function getDataProductActions(
     label: 'View',
   });
 
-  if (role === 'owner') {
-    return data.map((dataProduct) => [
-      getViewAction(dataProduct),
-      getToolboxAction(dataProduct),
-      getDownloadAction(dataProduct),
-      getShareAction(dataProduct),
-      getDeleteAction(dataProduct),
-    ]);
-  } else if (role === 'manager') {
-    return data.map((dataProduct) => [
-      getViewAction(dataProduct),
-      getDownloadAction(dataProduct),
-      getToolboxAction(dataProduct),
-    ]);
-  } else {
-    return data.map((dataProduct) => [getViewAction(dataProduct)]);
-  }
+  return data.map((dataProduct) => {
+    // For panoramic and 3DGS data products, only show view, download, and delete (for owners)
+    if (
+      dataProduct.data_type === 'panoramic' ||
+      dataProduct.data_type === '3dgs'
+    ) {
+      const actions = [
+        getViewAction(dataProduct),
+        getDownloadAction(dataProduct),
+      ];
+      if (role === 'owner') {
+        actions.push(getDeleteAction(dataProduct));
+        actions.push(getShareAction(dataProduct));
+      }
+      return actions;
+    }
+
+    // For all other data products, use the original role-based logic
+    if (role === 'owner') {
+      return [
+        getViewAction(dataProduct),
+        getToolboxAction(dataProduct),
+        getDownloadAction(dataProduct),
+        getShareAction(dataProduct),
+        getDeleteAction(dataProduct),
+      ];
+    } else if (role === 'manager') {
+      return [
+        getViewAction(dataProduct),
+        getDownloadAction(dataProduct),
+        getToolboxAction(dataProduct),
+      ];
+    } else {
+      return [getViewAction(dataProduct)];
+    }
+  });
 }
 
 function DataTypeSelect({
@@ -197,7 +223,8 @@ export default function DataProductsTable({
                       className="h-full flex items-center justify-center"
                     >
                       {dataset.status === 'SUCCESS' &&
-                      isGeoTIFF(dataset.data_type) ? (
+                      (isGeoTIFF(dataset.data_type) ||
+                        dataset.data_type === 'panoramic') ? (
                         <div className="h-full">
                           <img
                             className="w-full max-h-28"
@@ -211,6 +238,20 @@ export default function DataProductsTable({
                             Preview photo not ready
                           </span>
                           <PhotoIcon className="h-24 w-24" />
+                        </div>
+                      ) : dataset.data_type === '3dgs' ? (
+                        <div>
+                          <span className="sr-only">
+                            Preview photo not ready
+                          </span>
+                          {dataset.url && (
+                            <div className="flex items-center gap-2 rounded-full bg-white/80 backdrop-blur-sm px-3 py-1.5 shadow-sm ring-1 ring-slate-300/60">
+                              <CubeIcon className="w-6 h-6 text-slate-600" />
+                              <span className="text-lg font-semibold tracking-wide text-slate-700">
+                                3DGS
+                              </span>
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div>No preview</div>
